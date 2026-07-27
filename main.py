@@ -6,16 +6,37 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import QApplication
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
+from PyQt5.QtWidgets import QMessageBox
 
 from db.database import init_db
-from gui.main_window import MainWindow
+from gui.components.startup_splash import StartupSplash
+
+
+class StartupWorker(QThread):
+    """Load non-widget startup dependencies without blocking the splash UI."""
+
+    ready = pyqtSignal()
+    failed = pyqtSignal(str)
+
+    def __init__(self):
+        super().__init__()
+        self.window_type = None
+
+    def run(self):
+        try:
+            from gui.main_window import MainWindow
+
+            init_db()
+            self.window_type = MainWindow
+            self.ready.emit()
+        except Exception as error:
+            self.failed.emit(str(error))
 
 
 def main():
     # 初始化数据库
-    init_db()
 
     # Follow the Windows display scale instead of rendering CSS pixels too small.
     QApplication.setAttribute(Qt.ApplicationAttribute.AA_EnableHighDpiScaling, True)
@@ -27,8 +48,32 @@ def main():
     app.setQuitOnLastWindowClosed(False)  # 关闭窗口不退出，后台运行
 
     # 创建主窗口
-    window = MainWindow()
-    window.show()
+    splash = StartupSplash()
+    splash.show()
+    app.processEvents()
+
+    startup_worker = StartupWorker()
+
+    def show_main_window():
+        try:
+            window = startup_worker.window_type()
+            window.show()
+            app.processEvents()
+            splash.close()
+            app.main_window = window
+        except Exception as error:
+            splash.close()
+            QMessageBox.critical(None, '启动失败', f'无法打开应用：{error}')
+            app.quit()
+
+    def show_startup_error(message: str):
+        splash.close()
+        QMessageBox.critical(None, '启动失败', f'初始化本地服务失败：{message}')
+        app.quit()
+
+    startup_worker.ready.connect(show_main_window)
+    startup_worker.failed.connect(show_startup_error)
+    startup_worker.start()
 
     sys.exit(app.exec())
 

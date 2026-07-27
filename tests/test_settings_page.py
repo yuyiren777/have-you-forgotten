@@ -45,6 +45,15 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(self.page.step_stack.currentIndex(), 3)
         self.assertEqual(self.page.next_btn.text(), "保存设置")
 
+    def test_only_model_api_key_is_required(self):
+        self.page.api_key_input.setText("test-key")
+        self.page.wechat_service_combo.setCurrentIndex(1)
+        self.page.email_service_combo.setCurrentIndex(1)
+
+        self.assertTrue(self.page._validate_step(0))
+        self.assertTrue(self.page._validate_step(2))
+        self.assertTrue(self.page._validate_step(3))
+
     def test_final_save_marks_setup_complete(self):
         completed = QSignalSpy(self.page.setup_completed)
         with patch.object(self.page, "_persist_config") as persist, patch(

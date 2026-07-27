@@ -14,3 +14,4 @@ def test_zhipu_uses_supported_default_max_tokens(openai_client):
     assert call("test-key", [{"role": "user", "content": "test"}]) == "connected"
 
     assert client.chat.completions.create.call_args.kwargs["max_tokens"] == 2048
+    assert client.chat.completions.create.call_args.kwargs["model"] == "glm-4.6v-flash"

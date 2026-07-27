@@ -42,6 +42,7 @@ class MainWindow(QMainWindow):
 
         # 加载数据
         QTimer.singleShot(300, self._init_data)
+        QTimer.singleShot(500, self._show_developer_note)
 
     def _setup_ui(self):
         central = QWidget()
@@ -111,6 +112,10 @@ class MainWindow(QMainWindow):
         version_label = QLabel('本地数据 · v1.0')
         version_label.setObjectName('VersionLabel')
         nav_layout.addWidget(version_label)
+        developer_label = QLabel('哔站 UID：402333061')
+        developer_label.setObjectName('DeveloperContact')
+        developer_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        nav_layout.addWidget(developer_label)
 
         main_layout.addWidget(nav)
 
@@ -178,6 +183,40 @@ class MainWindow(QMainWindow):
             return
         self._switch_page(3)
         QTimer.singleShot(200, self._show_setup_required_message)
+
+    def _show_developer_note(self):
+        """Display the opt-out developer note once per application start."""
+        from db.models import Config
+
+        setting = Config.get_or_none(Config.key == 'show_developer_note')
+        if setting and setting.value == '0':
+            return
+
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle('开发者致语')
+        dialog.setIcon(QMessageBox.Icon.Information)
+        dialog.setText(
+            '本人学生一枚，由于忙于 408 考研，有很多东西容易忘记，\n'
+            '所以开发了这个软件帮我记事。\n\n'
+            '如果你觉得不错，可以在哔哩哔哩联系我，哔站 UID 在左下角；\n'
+            '也欢迎反馈 Bug。\n\n'
+            '本服务的日程不会保存到云端服务器，以保护你的隐私和安全。\n'
+            '因此不提供 24 小时在线提醒；只有在打开电脑并运行本程序时，\n'
+            '提醒服务才会启动。\n\n'
+            '如果应用出现死机，请按 Shift + Ctrl + Esc 打开任务管理器，\n'
+            '再结束本应用进程。'
+        )
+        close_button = dialog.addButton('关闭', QMessageBox.ButtonRole.RejectRole)
+        never_show_button = dialog.addButton('不再弹出', QMessageBox.ButtonRole.AcceptRole)
+        dialog.setDefaultButton(close_button)
+        dialog.exec_()
+
+        if dialog.clickedButton() is never_show_button:
+            if setting:
+                setting.value = '0'
+                setting.save()
+            else:
+                Config.create(key='show_developer_note', value='0')
 
     def _show_setup_required_message(self):
         QMessageBox.information(

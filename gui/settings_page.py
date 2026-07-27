@@ -1,5 +1,5 @@
 """Progressive settings wizard for model, reminder, and notification options."""
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
     QFormLayout,
@@ -20,6 +20,19 @@ from core.api_client import test_connection
 from db.database import get_db
 from db.models import Config
 from utils.crypto import decrypt, encrypt
+
+
+class ConnectionTestThread(QThread):
+    """Run the model network check outside Qt's UI thread."""
+
+    completed = pyqtSignal(bool, str)
+
+    def run(self):
+        try:
+            ok, message = test_connection()
+        except Exception as error:
+            ok, message = False, f'连接测试异常：{error}'
+        self.completed.emit(ok, message)
 
 
 class SettingsPage(QWidget):
@@ -140,43 +153,36 @@ class SettingsPage(QWidget):
 
     def _build_model_step(self) -> QWidget:
         page, form = self._build_step(
-            "连接 AI 模型", "模型负责从文字和图片中识别日程。API Key 只会加密保存在本机。"
+            "连接 AI 模型", "API Key 为必填项，用于识别文字和图片中的日程。API 地址和模型名称均可留空，填上自定义配置会更灵活。"
         )
 
         self.provider_combo = QComboBox()
-        self.provider_combo.addItems(
-            [
-                "zhipu - 智谱 GLM-4V (推荐)",
-                "qwen - 通义千问 Qwen-VL-Max",
-                "deepseek - DeepSeek-V3 (纯文本)",
-                "ernie - 百度文心 ERNIE-4.0",
-                "custom - 自定义 OpenAI 兼容",
-            ]
-        )
+        self.provider_combo.addItem("zhipu - 智谱 GLM-4.6V-Flash")
+        self.provider_combo.setEnabled(False)
         form.addRow("模型提供商", self.provider_combo)
 
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.api_key_input.setPlaceholderText("输入 API Key")
-        form.addRow("API Key", self.api_key_input)
+        self.api_key_input.setPlaceholderText("必填：输入 API Key")
+        form.addRow("API Key（必填）", self.api_key_input)
 
         self.api_base_input = QLineEdit()
-        self.api_base_input.setPlaceholderText("使用默认地址时留空")
-        form.addRow("API 地址", self.api_base_input)
+        self.api_base_input.setPlaceholderText("选填：留空使用默认地址")
+        form.addRow("API 地址（选填）", self.api_base_input)
 
         self.model_name_input = QLineEdit()
-        self.model_name_input.setPlaceholderText("使用默认模型时留空")
-        form.addRow("模型名称", self.model_name_input)
+        self.model_name_input.setPlaceholderText("选填：留空使用默认模型")
+        form.addRow("模型名称（选填）", self.model_name_input)
 
-        test_btn = QPushButton("测试连接")
-        test_btn.setObjectName("SecondaryButton")
-        test_btn.clicked.connect(self._test_connection)
-        form.addRow("", test_btn)
+        self.connection_test_btn = QPushButton("测试连接")
+        self.connection_test_btn.setObjectName("SecondaryButton")
+        self.connection_test_btn.clicked.connect(self._test_connection)
+        form.addRow("", self.connection_test_btn)
         return page
 
     def _build_reminder_step(self) -> QWidget:
         page, form = self._build_step(
-            "设置提醒时间", "该规则用于普通日程；紧急日程仍会提前更长时间提醒。"
+            "设置提醒时间", "选填，不设置也不影响日程识别和使用；设置后可获得更合适的本地提醒。"
         )
         self.advance_spin = QSpinBox()
         self.advance_spin.setRange(5, 1440)
@@ -188,7 +194,7 @@ class SettingsPage(QWidget):
 
     def _build_wechat_step(self) -> QWidget:
         page, form = self._build_step(
-            "设置微信通知", "选择服务后填写对应的 SendKey 或 Token；不需要微信通知可选择关闭。"
+            "设置微信通知", "选填，不填不影响使用；填写后可将提醒推送到微信。"
         )
         self.wechat_service_combo = QComboBox()
         self.wechat_service_combo.addItems(
@@ -211,8 +217,8 @@ class SettingsPage(QWidget):
 
         self.wechat_token_input = QLineEdit()
         self.wechat_token_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.wechat_token_input.setPlaceholderText("输入 SendKey / Token")
-        form.addRow("Token", self.wechat_token_input)
+        self.wechat_token_input.setPlaceholderText("选填：输入 SendKey / Token")
+        form.addRow("Token（选填）", self.wechat_token_input)
 
         test_btn = QPushButton("测试推送")
         test_btn.setObjectName("SecondaryButton")
@@ -222,7 +228,7 @@ class SettingsPage(QWidget):
 
     def _build_email_step(self) -> QWidget:
         page, form = self._build_step(
-            "设置邮件通知", "邮件通知是最后一步。QQ 邮箱需要使用授权码，而不是登录密码。"
+            "设置邮件通知", "选填，不填不影响使用；填写后可接收邮件提醒。QQ 邮箱请填写授权码，而不是登录密码。"
         )
         self.email_form = form
         self.email_service_combo = QComboBox()
@@ -240,21 +246,21 @@ class SettingsPage(QWidget):
 
         self.email_address_input = QLineEdit()
         self.email_address_input.setPlaceholderText("your_email@example.com")
-        form.addRow("邮箱地址", self.email_address_input)
+        form.addRow("邮箱地址（选填）", self.email_address_input)
 
         self.email_password_input = QLineEdit()
         self.email_password_input.setEchoMode(QLineEdit.EchoMode.Password)
-        self.email_password_input.setPlaceholderText("填写邮箱授权码")
-        form.addRow("授权码", self.email_password_input)
+        self.email_password_input.setPlaceholderText("选填：填写邮箱授权码")
+        form.addRow("授权码（选填）", self.email_password_input)
 
         self.email_smtp_host_input = QLineEdit()
         self.email_smtp_host_input.setPlaceholderText("smtp.example.com")
-        form.addRow("SMTP 服务器", self.email_smtp_host_input)
+        form.addRow("SMTP 服务器（选填）", self.email_smtp_host_input)
 
         self.email_smtp_port_input = QSpinBox()
         self.email_smtp_port_input.setRange(1, 65535)
         self.email_smtp_port_input.setValue(465)
-        form.addRow("SMTP 端口", self.email_smtp_port_input)
+        form.addRow("SMTP 端口（选填）", self.email_smtp_port_input)
 
         test_btn = QPushButton("测试发送")
         test_btn.setObjectName("SecondaryButton")
@@ -301,18 +307,6 @@ class SettingsPage(QWidget):
         if step == 0:
             if not self.api_key_input.text().strip():
                 return self._show_required("请先填写 API Key，再进入下一步。", self.api_key_input)
-            if self.provider_combo.currentText().startswith("custom") and not self.api_base_input.text().strip():
-                return self._show_required("自定义模型需要填写 API 地址。", self.api_base_input)
-        elif step == 2:
-            if not self.wechat_service_combo.currentText().startswith("none") and not self.wechat_token_input.text().strip():
-                return self._show_required("请填写所选微信服务的 Token。", self.wechat_token_input)
-        elif step == 3 and not self.email_service_combo.currentText().startswith("none"):
-            if not self.email_address_input.text().strip():
-                return self._show_required("请填写接收提醒的邮箱地址。", self.email_address_input)
-            if not self.email_password_input.text().strip():
-                return self._show_required("请填写邮箱授权码。", self.email_password_input)
-            if self.email_service_combo.currentText().startswith("custom") and not self.email_smtp_host_input.text().strip():
-                return self._show_required("自定义邮箱需要填写 SMTP 服务器。", self.email_smtp_host_input)
         return True
 
     def _show_required(self, message: str, field: QWidget) -> bool:
@@ -359,8 +353,7 @@ class SettingsPage(QWidget):
                     value = decrypt(value)
                 configs[row.key] = value
 
-        provider_map = {"zhipu": 0, "qwen": 1, "deepseek": 2, "ernie": 3, "custom": 4}
-        self.provider_combo.setCurrentIndex(provider_map.get(configs["model_provider"], 0))
+        self.provider_combo.setCurrentIndex(0)
         self.api_key_input.setText(configs["model_api_key"])
         self.api_base_input.setText(configs["model_api_base"])
         self.model_name_input.setText(configs["model_name"])
@@ -414,7 +407,17 @@ class SettingsPage(QWidget):
         if not self._validate_step(0):
             return
         self._persist_config()
-        ok, message = test_connection()
+        self.connection_test_btn.setEnabled(False)
+        self.connection_test_btn.setText('正在连接...')
+        self._connection_test_thread = ConnectionTestThread(self)
+        self._connection_test_thread.completed.connect(self._on_connection_test_finished)
+        self._connection_test_thread.finished.connect(self._connection_test_thread.deleteLater)
+        self._connection_test_thread.start()
+
+    def _on_connection_test_finished(self, ok: bool, message: str):
+        self.connection_test_btn.setEnabled(True)
+        self.connection_test_btn.setText('测试连接')
+        self._connection_test_thread = None
         dialog = QMessageBox.information if ok else QMessageBox.warning
         dialog(self, "连接测试", message)
 

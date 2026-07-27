@@ -7,20 +7,8 @@ from db.models import Config
 from utils.crypto import decrypt
 
 
-PROVIDERS = {
-    'zhipu': 'core.providers.zhipu',
-    'qwen': 'core.providers.qwen',
-    'deepseek': 'core.providers.deepseek',
-    'ernie': 'core.providers.ernie',
-    'custom': 'core.providers.custom',
-}
-
 PROVIDER_NAMES = {
-    'zhipu': '智谱 GLM-4V',
-    'qwen': '通义千问 Qwen-VL-Max',
-    'deepseek': 'DeepSeek-V3',
-    'ernie': '文心一言 ERNIE-4.0',
-    'custom': '自定义 API',
+    'zhipu': '智谱 GLM-4.6V-Flash',
 }
 
 
@@ -42,8 +30,11 @@ def _get_config(key: str, default: str = '') -> str:
 
 def get_provider_config() -> dict:
     """获取当前模型配置"""
+    provider = _get_config('model_provider', 'zhipu')
+    if provider != 'zhipu':
+        provider = 'zhipu'
     return {
-        'provider': _get_config('model_provider', 'zhipu'),
+        'provider': provider,
         'api_key': _get_config('model_api_key', ''),
         'api_base': _get_config('model_api_base', ''),
         'model': _get_config('model_name', ''),
@@ -89,12 +80,11 @@ def call_model(messages: list[dict], provider: str = '') -> str:
     if provider:
         config['provider'] = provider
 
-    p = config['provider']
-    if p not in PROVIDERS:
-        raise ValueError(f'不支持的模型提供商: {p}。可选: {", ".join(PROVIDERS.keys())}')
+    if provider and provider != 'zhipu':
+        raise ValueError('当前版本仅支持智谱 AI 模型服务。')
 
-    module = __import__(PROVIDERS[p], fromlist=['call'])
-    return module.call(
+    from core.providers.zhipu import call
+    return call(
         api_key=config['api_key'],
         messages=messages,
         base_url=config['api_base'],
@@ -209,14 +199,6 @@ def call_text_extract(text: str, provider: str = '') -> str:
         {'role': 'system', 'content': system_prompt},
         {'role': 'user', 'content': text},
     ]
-
-    # 纯文本优先用 DeepSeek（便宜）
-    if not provider:
-        config = get_provider_config()
-        if config['provider'] in ('zhipu', 'qwen', 'ernie'):
-            # 这些也支持文字，但 DeepSeek 更便宜
-            # 如果用户没配 DeepSeek，会回退到当前 provider
-            pass
 
     return call_model(messages, provider)
 

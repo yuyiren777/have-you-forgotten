@@ -1,8 +1,8 @@
-"""智谱 AI — GLM-4V (OpenAI 兼容接口)"""
+"""智谱 AI — GLM-4.6V-Flash (OpenAI 兼容接口)"""
 from openai import OpenAI
 
 DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/'
-DEFAULT_MODEL = 'glm-4v'
+DEFAULT_MODEL = 'glm-4.6v-flash'
 
 
 def call(
