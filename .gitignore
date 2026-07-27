@@ -1,0 +1,17 @@
+# Local application data may contain schedules and encrypted credentials.
+data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Local environment files and Python caches.
+.env
+.env.*
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Build artifacts.
+build/
+dist/
+*.spec
