@@ -199,14 +199,26 @@ class SettingsPage(QWidget):
 
     def _build_reminder_step(self) -> QWidget:
         page, form = self._build_step(
-            "设置提醒时间", "选填，不设置也不影响日程识别和使用；设置后可获得更合适的本地提醒。"
+            "设置提醒时间", "分别设置提前的天、小时和分钟；三项会合并计算。全部设为 0 时不提前提醒。"
         )
-        self.advance_spin = QSpinBox()
-        self.advance_spin.setRange(5, 1440)
-        self.advance_spin.setValue(30)
-        self.advance_spin.setSuffix(" 分钟")
-        self.advance_spin.setToolTip("日程开始前多少分钟提醒")
-        form.addRow("提前提醒", self.advance_spin)
+        self.advance_days_spin = QSpinBox()
+        self.advance_days_spin.setRange(0, 3650)
+        self.advance_days_spin.setSuffix(" 天")
+        self.advance_days_spin.setToolTip("日程开始前多少天提醒，最多 3650 天")
+        form.addRow("提前天数", self.advance_days_spin)
+
+        self.advance_hours_spin = QSpinBox()
+        self.advance_hours_spin.setRange(0, 23)
+        self.advance_hours_spin.setSuffix(" 小时")
+        self.advance_hours_spin.setToolTip("日程开始前多少小时提醒")
+        form.addRow("提前小时", self.advance_hours_spin)
+
+        self.advance_minutes_spin = QSpinBox()
+        self.advance_minutes_spin.setRange(0, 59)
+        self.advance_minutes_spin.setValue(30)
+        self.advance_minutes_spin.setSuffix(" 分钟")
+        self.advance_minutes_spin.setToolTip("日程开始前多少分钟提醒")
+        form.addRow("提前分钟", self.advance_minutes_spin)
         return page
 
     def _build_wechat_step(self) -> QWidget:
@@ -374,6 +386,9 @@ class SettingsPage(QWidget):
             "email_smtp_host": "",
             "email_smtp_port": "",
             "reminder_advance": "30",
+            "reminder_advance_days": "",
+            "reminder_advance_hours": "",
+            "reminder_advance_minutes": "",
             "theme": "light",
         }
         get_db()
@@ -405,12 +420,26 @@ class SettingsPage(QWidget):
         self.email_smtp_host_input.setText(configs["email_smtp_host"])
         if configs["email_smtp_port"]:
             self.email_smtp_port_input.setValue(int(configs["email_smtp_port"]))
-        self.advance_spin.setValue(int(configs["reminder_advance"]))
+        advance_fields = (
+            configs["reminder_advance_days"],
+            configs["reminder_advance_hours"],
+            configs["reminder_advance_minutes"],
+        )
+        if any(value != "" for value in advance_fields):
+            days, hours, minutes = (self._as_nonnegative_int(value) for value in advance_fields)
+        else:
+            total_minutes = self._as_nonnegative_int(configs["reminder_advance"])
+            days, remainder = divmod(total_minutes, 24 * 60)
+            hours, minutes = divmod(remainder, 60)
+        self.advance_days_spin.setValue(days)
+        self.advance_hours_spin.setValue(hours)
+        self.advance_minutes_spin.setValue(minutes)
 
         self._on_wechat_service_changed(self.wechat_service_combo.currentText())
         self._on_email_service_changed(self.email_service_combo.currentText())
 
     def _config_data(self) -> dict:
+        reminder_advance = self._reminder_advance_minutes()
         return {
             "model_provider": self.provider_combo.currentText().split(" - ")[0],
             "model_api_key": encrypt(self.api_key_input.text().strip()),
@@ -423,9 +452,27 @@ class SettingsPage(QWidget):
             "email_password": encrypt(self.email_password_input.text().strip()),
             "email_smtp_host": self.email_smtp_host_input.text().strip(),
             "email_smtp_port": str(self.email_smtp_port_input.value()),
-            "reminder_advance": str(self.advance_spin.value()),
+            # Keep the legacy total-minute key for existing installations.
+            "reminder_advance": str(reminder_advance),
+            "reminder_advance_days": str(self.advance_days_spin.value()),
+            "reminder_advance_hours": str(self.advance_hours_spin.value()),
+            "reminder_advance_minutes": str(self.advance_minutes_spin.value()),
             "theme": self.theme_combo.currentData(),
         }
+
+    @staticmethod
+    def _as_nonnegative_int(value) -> int:
+        try:
+            return max(0, int(value))
+        except (TypeError, ValueError):
+            return 0
+
+    def _reminder_advance_minutes(self) -> int:
+        return (
+            self.advance_days_spin.value() * 24 * 60
+            + self.advance_hours_spin.value() * 60
+            + self.advance_minutes_spin.value()
+        )
 
     def _persist_config(self, mark_complete: bool = False):
         get_db()

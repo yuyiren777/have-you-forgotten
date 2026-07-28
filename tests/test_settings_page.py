@@ -54,6 +54,17 @@ class SettingsPageTests(unittest.TestCase):
         self.assertTrue(self.page._validate_step(2))
         self.assertTrue(self.page._validate_step(3))
 
+    def test_reminder_lead_time_combines_days_hours_and_minutes(self):
+        self.page.advance_days_spin.setValue(300)
+        self.page.advance_hours_spin.setValue(5)
+        self.page.advance_minutes_spin.setValue(12)
+
+        data = self.page._config_data()
+        self.assertEqual(data["reminder_advance_days"], "300")
+        self.assertEqual(data["reminder_advance_hours"], "5")
+        self.assertEqual(data["reminder_advance_minutes"], "12")
+        self.assertEqual(data["reminder_advance"], str(300 * 1440 + 5 * 60 + 12))
+
     def test_selected_theme_is_included_in_saved_config(self):
         with patch("gui.settings_page.get_db"), patch(
             "gui.settings_page.Config.replace"

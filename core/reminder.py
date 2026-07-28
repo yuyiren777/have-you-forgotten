@@ -56,12 +56,27 @@ def _send_email(subject: str, html_content: str) -> bool:
 
 
 def _get_advance_minutes() -> int:
-    """获取提前提醒时间（分钟）"""
+    """Return the persisted day/hour/minute advance as total minutes."""
     from db.models import Config
     try:
+        values = {}
+        for key in ('reminder_advance_days', 'reminder_advance_hours', 'reminder_advance_minutes'):
+            row = Config.get_or_none(Config.key == key)
+            if row is not None:
+                try:
+                    values[key] = max(0, int(row.value))
+                except (TypeError, ValueError):
+                    values[key] = 0
+        if values:
+            return (
+                values.get('reminder_advance_days', 0) * 24 * 60
+                + values.get('reminder_advance_hours', 0) * 60
+                + values.get('reminder_advance_minutes', 0)
+            )
+
         row = Config.get_or_none(Config.key == 'reminder_advance')
-        if row:
-            return int(row.value)
+        if row is not None:
+            return max(0, int(row.value))
     except Exception:
         pass
     return 30
@@ -85,36 +100,23 @@ def _check_and_remind():
         if not s.date:
             continue
 
-        if s.start_time:
-            target = datetime.datetime.combine(s.date, s.start_time)
-            diff_minutes = (target - now).total_seconds() / 60
+        # Timed and all-day schedules share one advance rule. An all-day item
+        # starts at 00:00 on its date, so long lead times also work for it.
+        target = datetime.datetime.combine(s.date, s.start_time or datetime.time.min)
+        diff_minutes = (target - now).total_seconds() / 60
 
-            if 0 < diff_minutes <= advance:
-                should_remind = True
-                reason = f'还有 {int(diff_minutes)} 分钟'
-            elif s.urgency >= 2 and 0 < diff_minutes <= 120:
-                # 紧急日程提前 2 小时
-                should_remind = True
-                reason = f'（紧急）还有 {int(diff_minutes)} 分钟'
-        else:
-            # 全天事件：前一天晚上 20:00 提醒
-            yesterday = today + datetime.timedelta(days=1)
-            if s.date == yesterday:
-                if now.hour >= 20:
-                    # 检查今天是否已提醒过
-                    already = ReminderLog.select().where(
-                        (ReminderLog.schedule == s) &
-                        (ReminderLog.created_at >= today)
-                    ).exists()
-                    if not already:
-                        should_remind = True
-                        reason = '明天全天事件'
-            elif s.date == today:
-                # 已过期的事件，标记为 expired
-                if now.hour >= 22:
-                    s.status = 'expired'
-                    s.save()
-                    continue
+        if advance > 0 and 0 < diff_minutes <= advance:
+            should_remind = True
+            reason = f'还有 {max(1, int(diff_minutes))} 分钟'
+        elif s.start_time and s.urgency >= 2 and 0 < diff_minutes <= 120:
+            # Urgent timed schedules retain the two-hour fallback reminder.
+            should_remind = True
+            reason = f'（紧急）还有 {max(1, int(diff_minutes))} 分钟'
+        elif not s.start_time and s.date == today and now.hour >= 22:
+            # Keep the existing end-of-day expiration behavior for all-day items.
+            s.status = 'expired'
+            s.save()
+            continue
 
         if not should_remind:
             continue
