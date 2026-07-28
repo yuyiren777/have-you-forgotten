@@ -39,7 +39,7 @@ python main.py
 ## 📦 打包为 EXE
 
 ```bash
-pyinstaller --onefile --windowed --name "日程助手" --icon=gui/resources/icon.ico main.py
+pyinstaller --noconfirm --clean --windowed --onedir --name AI-Memo --add-data "gui/styles.qss;gui" --add-data "gui/dark_styles.qss;gui" main.py
 ```
 
 ## 🗂 项目结构

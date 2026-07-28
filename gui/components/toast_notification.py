@@ -1,14 +1,13 @@
 """Toast 通知组件 — 右下角弹窗"""
-from PyQt5.QtWidgets import QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QFont
 
 
-class ToastNotification(QFrame):
+class ToastNotification(QDialog):
     """右下角弹出通知"""
 
     dismissed = pyqtSignal()
-    snoozed = pyqtSignal()  # 稍后提醒
     _active_toasts = set()
 
     def __init__(self, title: str = '', message: str = '', parent=None):
@@ -21,10 +20,11 @@ class ToastNotification(QFrame):
 
     def _setup_ui(self, title: str, message: str):
         self.setWindowFlags(
+            Qt.WindowType.Dialog |
             Qt.WindowType.FramelessWindowHint |
-            Qt.WindowType.WindowStaysOnTopHint |
-            Qt.WindowType.Tool
+            Qt.WindowType.WindowStaysOnTopHint
         )
+        self.setModal(False)
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, False)
         self.setFixedSize(320, 140)
         self.setStyleSheet("""
@@ -57,25 +57,15 @@ class ToastNotification(QFrame):
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
 
-        snooze_btn = QPushButton('10分钟后')
-        snooze_btn.setObjectName('SmallButton')
-        snooze_btn.clicked.connect(self._on_snooze)
-        btn_layout.addWidget(snooze_btn)
-
-        dismiss_btn = QPushButton('知道了')
-        dismiss_btn.setObjectName('PrimarySmallButton')
-        dismiss_btn.clicked.connect(self._on_dismiss)
-        btn_layout.addWidget(dismiss_btn)
+        self.dismiss_btn = QPushButton('知道了')
+        self.dismiss_btn.setObjectName('PrimarySmallButton')
+        self.dismiss_btn.clicked.connect(self._on_dismiss)
+        btn_layout.addWidget(self.dismiss_btn)
         layout.addLayout(btn_layout)
 
     def _on_dismiss(self):
         self._auto_close_timer.stop()
         self.dismissed.emit()
-        self.close()
-
-    def _on_snooze(self):
-        self._auto_close_timer.stop()
-        self.snoozed.emit()
         self.close()
 
     def _fade_out(self):
@@ -87,7 +77,7 @@ class ToastNotification(QFrame):
         super().closeEvent(event)
 
     @staticmethod
-    def show_notification(title: str, message: str, parent=None):
+    def show_notification(title: str, message: str, parent=None, modal: bool = False):
         """在屏幕右下角显示通知"""
         from PyQt5.QtWidgets import QApplication
         toast = ToastNotification(title, message, parent)
@@ -103,5 +93,11 @@ class ToastNotification(QFrame):
             y = screen_geo.bottom() - toast.height() - 20
             toast.move(x, y)
 
-        toast.show()
+        if modal:
+            toast.setWindowModality(Qt.WindowModality.ApplicationModal)
+            toast.exec_()
+        else:
+            toast.show()
+            toast.raise_()
+            toast.activateWindow()
         return toast

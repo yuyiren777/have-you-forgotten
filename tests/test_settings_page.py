@@ -54,6 +54,25 @@ class SettingsPageTests(unittest.TestCase):
         self.assertTrue(self.page._validate_step(2))
         self.assertTrue(self.page._validate_step(3))
 
+    def test_selected_theme_is_included_in_saved_config(self):
+        with patch("gui.settings_page.get_db"), patch(
+            "gui.settings_page.Config.replace"
+        ) as replace:
+            self.page.theme_combo.setCurrentIndex(self.page.theme_combo.findData("dark"))
+
+        self.assertEqual(self.page._config_data()["theme"], "dark")
+        replace.assert_called_once_with(key="theme", value="dark")
+
+    def test_qq_email_address_uses_qq_number_format(self):
+        self.assertTrue(self.page._is_qq_email_address("123456@qq.com"))
+        self.assertFalse(self.page._is_qq_email_address("name@qq.com"))
+        self.assertFalse(self.page._is_qq_email_address("123456@qq.com.cn"))
+
+    def test_qq_email_format_is_shown_in_the_page_description(self):
+        self.page.email_service_combo.setCurrentIndex(1)
+
+        self.assertEqual(self.page.email_address_input.placeholderText(), "例如：123456@qq.com")
+
     def test_final_save_marks_setup_complete(self):
         completed = QSignalSpy(self.page.setup_completed)
         with patch.object(self.page, "_persist_config") as persist, patch(

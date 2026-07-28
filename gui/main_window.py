@@ -127,6 +127,7 @@ class MainWindow(QMainWindow):
         self.settings_page = SettingsPage()
         self.home_page.setup_required.connect(self._open_required_setup)
         self.settings_page.setup_completed.connect(self._on_setup_completed)
+        self.settings_page.theme_changed.connect(self._load_stylesheet)
 
         self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.schedule_page)
@@ -136,7 +137,7 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.stack, 1)
 
         # 加载样式
-        self._load_stylesheet()
+        self._load_stylesheet(self._saved_theme())
 
     def _switch_page(self, index: int):
         self.stack.setCurrentIndex(index)
@@ -272,7 +273,10 @@ class MainWindow(QMainWindow):
         self.reminder_notification.emit(title, message)
 
     def _show_reminder_toast(self, title: str, message: str):
-        ToastNotification.show_notification(title, message, self)
+        # A reminder needs an explicit acknowledgement. Running the same
+        # right-bottom dialog modally prevents Windows from routing clicks to
+        # the background main window instead of its action button.
+        ToastNotification.show_notification(title, message, self, modal=True)
 
     def _queue_tray_alert(self):
         self.tray_alert_requested.emit()
@@ -338,8 +342,16 @@ class MainWindow(QMainWindow):
         )
         self.move(left, top)
 
-    def _load_stylesheet(self):
-        style_path = os.path.join(os.path.dirname(__file__), 'styles.qss')
+    def _saved_theme(self) -> str:
+        """Return the persisted UI theme, falling back to the light theme."""
+        from db.models import Config
+
+        theme = Config.get_or_none(Config.key == 'theme')
+        return theme.value if theme and theme.value in {'light', 'dark'} else 'light'
+
+    def _load_stylesheet(self, theme: str = 'light'):
+        style_name = 'dark_styles.qss' if theme == 'dark' else 'styles.qss'
+        style_path = os.path.join(os.path.dirname(__file__), style_name)
         if os.path.exists(style_path):
             with open(style_path, 'r', encoding='utf-8') as f:
                 self.setStyleSheet(f.read())

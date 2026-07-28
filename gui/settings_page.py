@@ -39,6 +39,7 @@ class SettingsPage(QWidget):
     """Four-step settings wizard that reveals one task at a time."""
 
     setup_completed = pyqtSignal()
+    theme_changed = pyqtSignal(str)
 
     STEP_TITLES = ("AI 模型", "提醒规则", "微信通知", "邮件通知")
     STEP_DESCRIPTIONS = (
@@ -62,13 +63,29 @@ class SettingsPage(QWidget):
         layout.setContentsMargins(32, 28, 32, 28)
         layout.setSpacing(16)
 
+        header_row = QHBoxLayout()
+        header_text = QVBoxLayout()
+        header_text.setSpacing(4)
         title = QLabel("设置")
         title.setObjectName("PageTitle")
-        layout.addWidget(title)
+        header_text.addWidget(title)
 
         subtitle = QLabel("按步骤完成配置，每次只处理一组设置")
         subtitle.setObjectName("PageSubtitle")
-        layout.addWidget(subtitle)
+        header_text.addWidget(subtitle)
+        header_row.addLayout(header_text)
+        header_row.addStretch()
+
+        theme_label = QLabel("界面主题")
+        theme_label.setObjectName("ThemeLabel")
+        header_row.addWidget(theme_label)
+        self.theme_combo = QComboBox()
+        self.theme_combo.setObjectName("ThemeCombo")
+        self.theme_combo.addItem("浅色主题", "light")
+        self.theme_combo.addItem("夜间主题", "dark")
+        self.theme_combo.currentIndexChanged.connect(self._on_theme_changed)
+        header_row.addWidget(self.theme_combo)
+        layout.addLayout(header_row)
         layout.addSpacing(8)
 
         progress_row = QHBoxLayout()
@@ -228,7 +245,7 @@ class SettingsPage(QWidget):
 
     def _build_email_step(self) -> QWidget:
         page, form = self._build_step(
-            "设置邮件通知", "选填，不填不影响使用；填写后可接收邮件提醒。QQ 邮箱请填写授权码，而不是登录密码。"
+            "设置邮件通知", "选填，不填不影响使用；填写后可接收邮件提醒。QQ 邮箱请填写授权码，而不是登录密码。注意：邮箱格式请设置为qq号@qq.com。"
         )
         self.email_form = form
         self.email_service_combo = QComboBox()
@@ -246,6 +263,7 @@ class SettingsPage(QWidget):
 
         self.email_address_input = QLineEdit()
         self.email_address_input.setPlaceholderText("your_email@example.com")
+        self.email_address_input.setToolTip("QQ 邮箱格式：QQ号@qq.com，例如 123456@qq.com")
         form.addRow("邮箱地址（选填）", self.email_address_input)
 
         self.email_password_input = QLineEdit()
@@ -323,12 +341,24 @@ class SettingsPage(QWidget):
         enabled = not text.startswith("none")
         self.email_address_input.setEnabled(enabled)
         self.email_password_input.setEnabled(enabled)
+        is_qq = text.startswith("qq")
+        self.email_address_input.setPlaceholderText(
+            "例如：123456@qq.com" if is_qq else "your_email@example.com"
+        )
         is_custom = text.startswith("custom")
         for field in (self.email_smtp_host_input, self.email_smtp_port_input):
             field.setVisible(is_custom)
             label = self.email_form.labelForField(field)
             if label:
                 label.setVisible(is_custom)
+
+    def _on_theme_changed(self):
+        theme = self.theme_combo.currentData()
+        if theme not in {'light', 'dark'}:
+            return
+        get_db()
+        Config.replace(key='theme', value=theme).execute()
+        self.theme_changed.emit(theme)
 
     def _load_config(self):
         configs = {
@@ -344,6 +374,7 @@ class SettingsPage(QWidget):
             "email_smtp_host": "",
             "email_smtp_port": "",
             "reminder_advance": "30",
+            "theme": "light",
         }
         get_db()
         for row in Config.select():
@@ -354,6 +385,11 @@ class SettingsPage(QWidget):
                 configs[row.key] = value
 
         self.provider_combo.setCurrentIndex(0)
+        self.theme_combo.blockSignals(True)
+        self.theme_combo.setCurrentIndex(
+            max(0, self.theme_combo.findData(configs["theme"]))
+        )
+        self.theme_combo.blockSignals(False)
         self.api_key_input.setText(configs["model_api_key"])
         self.api_base_input.setText(configs["model_api_base"])
         self.model_name_input.setText(configs["model_name"])
@@ -388,6 +424,7 @@ class SettingsPage(QWidget):
             "email_smtp_host": self.email_smtp_host_input.text().strip(),
             "email_smtp_port": str(self.email_smtp_port_input.value()),
             "reminder_advance": str(self.advance_spin.value()),
+            "theme": self.theme_combo.currentData(),
         }
 
     def _persist_config(self, mark_complete: bool = False):
@@ -447,6 +484,14 @@ class SettingsPage(QWidget):
     def _test_email(self):
         if not self._validate_step(3):
             return
+        if self.email_service_combo.currentText().startswith("qq"):
+            address = self.email_address_input.text().strip()
+            if not address or not self._is_qq_email_address(address):
+                self._show_required(
+                    "QQ 邮箱请填写为 QQ号@qq.com，例如 123456@qq.com。",
+                    self.email_address_input,
+                )
+                return
         self._persist_config()
         from core.api_client import get_push_config
         from push.email_sender import build_schedule_email, send
@@ -469,3 +514,8 @@ class SettingsPage(QWidget):
         )
         dialog = QMessageBox.information if ok else QMessageBox.warning
         dialog(self, "邮件测试", message)
+
+    @staticmethod
+    def _is_qq_email_address(address: str) -> bool:
+        local, separator, domain = address.partition("@")
+        return bool(local) and local.isdigit() and separator == "@" and domain.lower() == "qq.com"
