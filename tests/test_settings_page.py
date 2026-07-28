@@ -54,16 +54,30 @@ class SettingsPageTests(unittest.TestCase):
         self.assertTrue(self.page._validate_step(2))
         self.assertTrue(self.page._validate_step(3))
 
-    def test_reminder_lead_time_combines_days_hours_and_minutes(self):
-        self.page.advance_days_spin.setValue(300)
-        self.page.advance_hours_spin.setValue(5)
-        self.page.advance_minutes_spin.setValue(12)
+    def test_reminder_stages_save_independently(self):
+        self.page.first_days_spin.setValue(300)
+        self.page.first_hours_spin.setValue(5)
+        self.page.first_minutes_spin.setValue(12)
+        self.page.second_days_spin.setValue(7)
+        self.page.second_hours_spin.setValue(1)
+        self.page.second_minutes_spin.setValue(0)
+        self.page.final_minutes_spin.setValue(30)
 
         data = self.page._config_data()
-        self.assertEqual(data["reminder_advance_days"], "300")
-        self.assertEqual(data["reminder_advance_hours"], "5")
-        self.assertEqual(data["reminder_advance_minutes"], "12")
-        self.assertEqual(data["reminder_advance"], str(300 * 1440 + 5 * 60 + 12))
+        self.assertEqual(data["reminder_first_days"], "300")
+        self.assertEqual(data["reminder_second_days"], "7")
+        self.assertEqual(data["reminder_final_minutes"], "30")
+        self.assertEqual(data["reminder_advance"], "30")
+
+    def test_reminder_stage_order_is_validated(self):
+        self.page.first_minutes_spin.setValue(20)
+        self.page.second_minutes_spin.setValue(0)
+        self.page.final_minutes_spin.setValue(30)
+
+        with patch.object(self.page, "_show_required", return_value=False) as show_required:
+            self.assertFalse(self.page._validate_step(1))
+
+        show_required.assert_called_once()
 
     def test_selected_theme_is_included_in_saved_config(self):
         with patch("gui.settings_page.get_db"), patch(

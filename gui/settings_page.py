@@ -199,27 +199,49 @@ class SettingsPage(QWidget):
 
     def _build_reminder_step(self) -> QWidget:
         page, form = self._build_step(
-            "设置提醒时间", "分别设置提前的天、小时和分钟；三项会合并计算。全部设为 0 时不提前提醒。"
+            "设置提醒时间", "最后提醒为必填；第一次和第二次提醒可选。每项均由天、小时、分钟组成，未启用的可保持 0。"
         )
-        self.advance_days_spin = QSpinBox()
-        self.advance_days_spin.setRange(0, 3650)
-        self.advance_days_spin.setSuffix(" 天")
-        self.advance_days_spin.setToolTip("日程开始前多少天提醒，最多 3650 天")
-        form.addRow("提前天数", self.advance_days_spin)
+        self.final_days_spin, self.final_hours_spin, self.final_minutes_spin = self._reminder_fields(30)
+        form.addRow("最后提醒（必填）", self._reminder_row(
+            self.final_days_spin, self.final_hours_spin, self.final_minutes_spin
+        ))
 
-        self.advance_hours_spin = QSpinBox()
-        self.advance_hours_spin.setRange(0, 23)
-        self.advance_hours_spin.setSuffix(" 小时")
-        self.advance_hours_spin.setToolTip("日程开始前多少小时提醒")
-        form.addRow("提前小时", self.advance_hours_spin)
+        self.first_days_spin, self.first_hours_spin, self.first_minutes_spin = self._reminder_fields()
+        form.addRow("第一次提醒（选填）", self._reminder_row(
+            self.first_days_spin, self.first_hours_spin, self.first_minutes_spin
+        ))
 
-        self.advance_minutes_spin = QSpinBox()
-        self.advance_minutes_spin.setRange(0, 59)
-        self.advance_minutes_spin.setValue(30)
-        self.advance_minutes_spin.setSuffix(" 分钟")
-        self.advance_minutes_spin.setToolTip("日程开始前多少分钟提醒")
-        form.addRow("提前分钟", self.advance_minutes_spin)
+        self.second_days_spin, self.second_hours_spin, self.second_minutes_spin = self._reminder_fields()
+        form.addRow("第二次提醒（选填）", self._reminder_row(
+            self.second_days_spin, self.second_hours_spin, self.second_minutes_spin
+        ))
         return page
+
+    @staticmethod
+    def _reminder_fields(default_minutes: int = 0) -> tuple[QSpinBox, QSpinBox, QSpinBox]:
+        days = QSpinBox()
+        days.setRange(0, 3650)
+        days.setSuffix(" 天")
+        hours = QSpinBox()
+        hours.setRange(0, 23)
+        hours.setSuffix(" 小时")
+        minutes = QSpinBox()
+        minutes.setRange(0, 59)
+        minutes.setValue(default_minutes)
+        minutes.setSuffix(" 分钟")
+        return days, hours, minutes
+
+    @staticmethod
+    def _reminder_row(days: QSpinBox, hours: QSpinBox, minutes: QSpinBox) -> QWidget:
+        row = QWidget()
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        layout.addWidget(days)
+        layout.addWidget(hours)
+        layout.addWidget(minutes)
+        layout.addStretch()
+        return row
 
     def _build_wechat_step(self) -> QWidget:
         page, form = self._build_step(
@@ -337,6 +359,18 @@ class SettingsPage(QWidget):
         if step == 0:
             if not self.api_key_input.text().strip():
                 return self._show_required("请先填写 API Key，再进入下一步。", self.api_key_input)
+        elif step == 1:
+            final = self._reminder_minutes("final")
+            first = self._reminder_minutes("first")
+            second = self._reminder_minutes("second")
+            if final <= 0:
+                return self._show_required("最后提醒至少需要设置为 1 分钟。", self.final_minutes_spin)
+            if first and first <= final:
+                return self._show_required("第一次提醒必须早于最后提醒。", self.first_minutes_spin)
+            if second and second <= final:
+                return self._show_required("第二次提醒必须早于最后提醒。", self.second_minutes_spin)
+            if first and second and first <= second:
+                return self._show_required("第一次提醒必须早于第二次提醒。", self.first_minutes_spin)
         return True
 
     def _show_required(self, message: str, field: QWidget) -> bool:
@@ -389,6 +423,15 @@ class SettingsPage(QWidget):
             "reminder_advance_days": "",
             "reminder_advance_hours": "",
             "reminder_advance_minutes": "",
+            "reminder_final_days": "",
+            "reminder_final_hours": "",
+            "reminder_final_minutes": "",
+            "reminder_first_days": "",
+            "reminder_first_hours": "",
+            "reminder_first_minutes": "",
+            "reminder_second_days": "",
+            "reminder_second_hours": "",
+            "reminder_second_minutes": "",
             "theme": "light",
         }
         get_db()
@@ -420,26 +463,29 @@ class SettingsPage(QWidget):
         self.email_smtp_host_input.setText(configs["email_smtp_host"])
         if configs["email_smtp_port"]:
             self.email_smtp_port_input.setValue(int(configs["email_smtp_port"]))
-        advance_fields = (
-            configs["reminder_advance_days"],
-            configs["reminder_advance_hours"],
-            configs["reminder_advance_minutes"],
-        )
-        if any(value != "" for value in advance_fields):
-            days, hours, minutes = (self._as_nonnegative_int(value) for value in advance_fields)
-        else:
-            total_minutes = self._as_nonnegative_int(configs["reminder_advance"])
-            days, remainder = divmod(total_minutes, 24 * 60)
-            hours, minutes = divmod(remainder, 60)
-        self.advance_days_spin.setValue(days)
-        self.advance_hours_spin.setValue(hours)
-        self.advance_minutes_spin.setValue(minutes)
+        final_fields = self._stage_values(configs, "final")
+        if final_fields is None:
+            legacy_fields = (
+                configs["reminder_advance_days"],
+                configs["reminder_advance_hours"],
+                configs["reminder_advance_minutes"],
+            )
+            if any(value != "" for value in legacy_fields):
+                final_fields = tuple(self._as_nonnegative_int(value) for value in legacy_fields)
+            else:
+                total_minutes = self._as_nonnegative_int(configs["reminder_advance"])
+                days, remainder = divmod(total_minutes, 24 * 60)
+                hours, minutes = divmod(remainder, 60)
+                final_fields = (days, hours, minutes)
+        self._set_stage_values("final", final_fields)
+        self._set_stage_values("first", self._stage_values(configs, "first") or (0, 0, 0))
+        self._set_stage_values("second", self._stage_values(configs, "second") or (0, 0, 0))
 
         self._on_wechat_service_changed(self.wechat_service_combo.currentText())
         self._on_email_service_changed(self.email_service_combo.currentText())
 
     def _config_data(self) -> dict:
-        reminder_advance = self._reminder_advance_minutes()
+        final_advance = self._reminder_minutes("final")
         return {
             "model_provider": self.provider_combo.currentText().split(" - ")[0],
             "model_api_key": encrypt(self.api_key_input.text().strip()),
@@ -452,11 +498,14 @@ class SettingsPage(QWidget):
             "email_password": encrypt(self.email_password_input.text().strip()),
             "email_smtp_host": self.email_smtp_host_input.text().strip(),
             "email_smtp_port": str(self.email_smtp_port_input.value()),
-            # Keep the legacy total-minute key for existing installations.
-            "reminder_advance": str(reminder_advance),
-            "reminder_advance_days": str(self.advance_days_spin.value()),
-            "reminder_advance_hours": str(self.advance_hours_spin.value()),
-            "reminder_advance_minutes": str(self.advance_minutes_spin.value()),
+            # Keep legacy keys in sync with the final reminder for upgrades.
+            "reminder_advance": str(final_advance),
+            "reminder_advance_days": str(self.final_days_spin.value()),
+            "reminder_advance_hours": str(self.final_hours_spin.value()),
+            "reminder_advance_minutes": str(self.final_minutes_spin.value()),
+            **self._stage_config("final"),
+            **self._stage_config("first"),
+            **self._stage_config("second"),
             "theme": self.theme_combo.currentData(),
         }
 
@@ -467,12 +516,34 @@ class SettingsPage(QWidget):
         except (TypeError, ValueError):
             return 0
 
-    def _reminder_advance_minutes(self) -> int:
+    def _stage_values(self, configs: dict, stage: str):
+        values = tuple(configs[f"reminder_{stage}_{unit}"] for unit in ("days", "hours", "minutes"))
+        if not any(value != "" for value in values):
+            return None
+        return tuple(self._as_nonnegative_int(value) for value in values)
+
+    def _set_stage_values(self, stage: str, values: tuple[int, int, int]):
+        for spin, value in zip(self._stage_spins(stage), values):
+            spin.setValue(value)
+
+    def _stage_spins(self, stage: str) -> tuple[QSpinBox, QSpinBox, QSpinBox]:
+        return tuple(getattr(self, f"{stage}_{unit}_spin") for unit in ("days", "hours", "minutes"))
+
+    def _reminder_minutes(self, stage: str) -> int:
+        days, hours, minutes = self._stage_spins(stage)
         return (
-            self.advance_days_spin.value() * 24 * 60
-            + self.advance_hours_spin.value() * 60
-            + self.advance_minutes_spin.value()
+            days.value() * 24 * 60
+            + hours.value() * 60
+            + minutes.value()
         )
+
+    def _stage_config(self, stage: str) -> dict:
+        days, hours, minutes = self._stage_spins(stage)
+        return {
+            f"reminder_{stage}_days": str(days.value()),
+            f"reminder_{stage}_hours": str(hours.value()),
+            f"reminder_{stage}_minutes": str(minutes.value()),
+        }
 
     def _persist_config(self, mark_complete: bool = False):
         get_db()

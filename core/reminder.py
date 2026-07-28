@@ -55,38 +55,69 @@ def _send_email(subject: str, html_content: str) -> bool:
     )[0]
 
 
-def _get_advance_minutes() -> int:
-    """Return the persisted day/hour/minute advance as total minutes."""
+def _config_minutes(config, prefix: str) -> int | None:
+    """Read a day/hour/minute triplet, returning None when it was never saved."""
+    values = []
+    found = False
+    for unit in ('days', 'hours', 'minutes'):
+        row = config.get_or_none(config.key == f'{prefix}_{unit}')
+        if row is not None:
+            found = True
+            try:
+                values.append(max(0, int(row.value)))
+            except (TypeError, ValueError):
+                values.append(0)
+        else:
+            values.append(0)
+    if not found:
+        return None
+    return values[0] * 24 * 60 + values[1] * 60 + values[2]
+
+
+def _get_reminder_stages() -> list[tuple[str, str, int]]:
+    """Return enabled reminder stages in chronological order."""
     from db.models import Config
     try:
-        values = {}
-        for key in ('reminder_advance_days', 'reminder_advance_hours', 'reminder_advance_minutes'):
-            row = Config.get_or_none(Config.key == key)
-            if row is not None:
-                try:
-                    values[key] = max(0, int(row.value))
-                except (TypeError, ValueError):
-                    values[key] = 0
-        if values:
-            return (
-                values.get('reminder_advance_days', 0) * 24 * 60
-                + values.get('reminder_advance_hours', 0) * 60
-                + values.get('reminder_advance_minutes', 0)
-            )
+        final = _config_minutes(Config, 'reminder_final')
+        if final is None:
+            # Migrate the previous single-stage configuration at read time.
+            final = _config_minutes(Config, 'reminder_advance')
+            if final is None:
+                row = Config.get_or_none(Config.key == 'reminder_advance')
+                final = max(0, int(row.value)) if row is not None else 30
 
-        row = Config.get_or_none(Config.key == 'reminder_advance')
-        if row is not None:
-            return max(0, int(row.value))
+        first = _config_minutes(Config, 'reminder_first') or 0
+        second = _config_minutes(Config, 'reminder_second') or 0
+        stages = []
+        if first > 0:
+            stages.append(('first', '第一次提醒', first))
+        if second > 0:
+            stages.append(('second', '第二次提醒', second))
+        if final > 0:
+            stages.append(('final', '最后提醒', final))
+        return stages
     except Exception:
-        pass
-    return 30
+        return [('final', '最后提醒', 30)]
+
+
+def _select_due_stage(diff_minutes: float, stages, sent_stages: set[str]):
+    """Select the closest unhandled lead time that has become due.
+
+    Choosing the smallest eligible lead prevents several missed early stages
+    from firing together when the app is opened close to the event.
+    """
+    candidates = [
+        stage for stage in stages
+        if stage[0] not in sent_stages and 0 < diff_minutes <= stage[2]
+    ]
+    return min(candidates, key=lambda stage: stage[2]) if candidates else None
 
 
 def _check_and_remind():
     """检查日程并发送提醒（由 APScheduler 每分钟调用一次）"""
     now = datetime.datetime.now()
     today = now.date()
-    advance = _get_advance_minutes()
+    stages = _get_reminder_stages()
 
     # 1. 查找需要提醒的日程
     pending_schedules = Schedule.select().where(
@@ -94,9 +125,6 @@ def _check_and_remind():
     ).order_by(Schedule.date.asc(), Schedule.start_time.asc())
 
     for s in pending_schedules:
-        should_remind = False
-        reason = ''
-
         if not s.date:
             continue
 
@@ -105,28 +133,28 @@ def _check_and_remind():
         target = datetime.datetime.combine(s.date, s.start_time or datetime.time.min)
         diff_minutes = (target - now).total_seconds() / 60
 
-        if advance > 0 and 0 < diff_minutes <= advance:
-            should_remind = True
-            reason = f'还有 {max(1, int(diff_minutes))} 分钟'
-        elif s.start_time and s.urgency >= 2 and 0 < diff_minutes <= 120:
-            # Urgent timed schedules retain the two-hour fallback reminder.
-            should_remind = True
-            reason = f'（紧急）还有 {max(1, int(diff_minutes))} 分钟'
-        elif not s.start_time and s.date == today and now.hour >= 22:
+        if not s.start_time and s.date == today and now.hour >= 22:
             # Keep the existing end-of-day expiration behavior for all-day items.
             s.status = 'expired'
             s.save()
             continue
 
-        if not should_remind:
+        sent_stage_rows = ReminderLog.select().where(
+            (ReminderLog.schedule == s) & ReminderLog.method.startswith('windows:')
+        )
+        sent_stages = {row.method.split(':', 1)[1] for row in sent_stage_rows}
+        stage = _select_due_stage(diff_minutes, stages, sent_stages)
+        if stage is None:
             continue
+        stage_key, stage_label, _ = stage
 
         # 2. 发送提醒
-        title = f'⏰ 日程提醒: {s.title}'
+        title = f'⏰ {stage_label}: {s.title}'
         formatted = format_schedule_time(s)
         remaining = format_remaining_time(s.date, s.start_time)
 
         content_lines = [
+            f'🔔 {stage_label}',
             f'📌 {s.title}',
             f'📅 {formatted}',
         ]
@@ -149,7 +177,7 @@ def _check_and_remind():
         wechat_ok = _send_wechat(title, content)
         ReminderLog.create(
             schedule=s,
-            method='wechat',
+            method=f'wechat:{stage_key}',
             status='sent' if wechat_ok else 'failed',
             message=content,
         )
@@ -163,10 +191,10 @@ def _check_and_remind():
             notes=s.notes or '',
             remaining=remaining,
         )
-        email_ok = _send_email(f'⏰ 日程提醒 — {s.title}', email_html)
+        email_ok = _send_email(f'⏰ {stage_label} — {s.title}', email_html)
         ReminderLog.create(
             schedule=s,
-            method='email',
+            method=f'email:{stage_key}',
             status='sent' if email_ok else 'failed',
             message=content,
         )
@@ -174,15 +202,16 @@ def _check_and_remind():
         # Windows 通知日志
         ReminderLog.create(
             schedule=s,
-            method='windows',
+            method=f'windows:{stage_key}',
             status='sent',
             message=content,
         )
 
-        # 更新状态
-        s.status = 'reminded'
-        s.reminded_at = now
-        s.save()
+        # Early stages must not suppress the remaining reminders.
+        if stage_key == 'final':
+            s.status = 'reminded'
+            s.reminded_at = now
+            s.save()
 
         # 托盘闪烁
         if on_alert_tray:
