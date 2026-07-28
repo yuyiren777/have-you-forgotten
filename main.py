@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import QMessageBox
 
 from db.database import init_db
 from gui.components.startup_splash import StartupSplash
+from utils.single_instance import SingleInstanceGuard
 
 
 class StartupWorker(QThread):
@@ -47,6 +48,21 @@ def main():
     app.setOrganizationName('ScheduleAssistant')
     app.setQuitOnLastWindowClosed(False)  # 关闭窗口不退出，后台运行
     background_start = '--background' in sys.argv
+    instance_guard = SingleInstanceGuard(app)
+    if not instance_guard.is_primary:
+        return
+    app.instance_guard = instance_guard
+    app.activation_pending = False
+
+    def activate_main_window():
+        window = getattr(app, 'main_window', None)
+        if window:
+            window.show_and_raise()
+        else:
+            app.activation_pending = True
+
+    instance_guard.activation_requested.connect(activate_main_window)
+    app.aboutToQuit.connect(instance_guard.close)
 
     # A startup launch keeps only the tray and reminder service visible.
     splash = None
@@ -61,11 +77,10 @@ def main():
         try:
             window = startup_worker.window_type(show_developer_note=not background_start)
             app.main_window = window
-            if background_start:
+            if background_start and not app.activation_pending:
                 window.tray.show()
             else:
-                window.show()
-                app.processEvents()
+                window.show_and_raise()
             if splash:
                 splash.close()
         except Exception as error:

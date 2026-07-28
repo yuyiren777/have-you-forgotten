@@ -42,6 +42,17 @@ python main.py
 pyinstaller --noconfirm --clean --windowed --onedir --name AI-Memo --add-data "gui/styles.qss;gui" --add-data "gui/dark_styles.qss;gui" main.py
 ```
 
+## 🧭 制作安装包
+
+将应用图标保存为 `resources/app-icon.png` 后，安装 Inno Setup 6，并运行：
+
+```powershell
+winget install JRSoftware.InnoSetup
+.\installer\build_release.ps1
+```
+
+生成的 `release\AI-Memo-Installer.zip` 内含安装向导。用户解压后运行该向导即可安装应用并创建桌面快捷方式。
+
 ## 🗂 项目结构
 
 ```

@@ -9,7 +9,8 @@ from utils.date_parser import format_remaining_time, format_schedule_time
 
 logger = logging.getLogger(__name__)
 
-scheduler = BackgroundScheduler()
+LOCAL_TIMEZONE = datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
+scheduler = BackgroundScheduler(timezone=LOCAL_TIMEZONE)
 
 # 回调函数（由 GUI 层设置）
 on_windows_notify = None  # callable(title, message)
