@@ -24,7 +24,7 @@ class MainWindow(QMainWindow):
     reminder_notification = pyqtSignal(str, str)
     tray_alert_requested = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, show_developer_note: bool = True):
         super().__init__()
         self.setWindowTitle('智能日程提醒助手')
         self.setMinimumSize(640, 480)
@@ -42,7 +42,8 @@ class MainWindow(QMainWindow):
 
         # 加载数据
         QTimer.singleShot(300, self._init_data)
-        QTimer.singleShot(500, self._show_developer_note)
+        if show_developer_note:
+            QTimer.singleShot(500, self._show_developer_note)
 
     def _setup_ui(self):
         central = QWidget()

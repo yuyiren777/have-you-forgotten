@@ -2,6 +2,7 @@
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
+    QCheckBox,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -20,6 +21,9 @@ from core.api_client import test_connection
 from db.database import get_db
 from db.models import Config
 from utils.crypto import decrypt, encrypt
+from utils.autostart import is_enabled as autostart_enabled
+from utils.autostart import is_supported as autostart_supported
+from utils.autostart import set_enabled as set_autostart_enabled
 
 
 class ConnectionTestThread(QThread):
@@ -215,6 +219,10 @@ class SettingsPage(QWidget):
         form.addRow("第二次提醒（选填）", self._reminder_row(
             self.second_days_spin, self.second_hours_spin, self.second_minutes_spin
         ))
+
+        self.autostart_check = QCheckBox("开机后后台启动（可在系统托盘中打开）")
+        self.autostart_check.toggled.connect(self._on_autostart_changed)
+        form.addRow("启动选项", self.autostart_check)
         return page
 
     @staticmethod
@@ -406,6 +414,16 @@ class SettingsPage(QWidget):
         Config.replace(key='theme', value=theme).execute()
         self.theme_changed.emit(theme)
 
+    def _on_autostart_changed(self, enabled: bool):
+        if not set_autostart_enabled(enabled):
+            self.autostart_check.blockSignals(True)
+            self.autostart_check.setChecked(False)
+            self.autostart_check.blockSignals(False)
+            QMessageBox.warning(self, "无法设置开机自启动", "开机自启动仅支持打包后的 Windows 应用。")
+            return
+        get_db()
+        Config.replace(key="autostart_enabled", value="1" if enabled else "0").execute()
+
     def _load_config(self):
         configs = {
             "model_provider": "zhipu",
@@ -432,6 +450,7 @@ class SettingsPage(QWidget):
             "reminder_second_days": "",
             "reminder_second_hours": "",
             "reminder_second_minutes": "",
+            "autostart_enabled": "0",
             "theme": "light",
         }
         get_db()
@@ -481,6 +500,16 @@ class SettingsPage(QWidget):
         self._set_stage_values("first", self._stage_values(configs, "first") or (0, 0, 0))
         self._set_stage_values("second", self._stage_values(configs, "second") or (0, 0, 0))
 
+        self.autostart_check.blockSignals(True)
+        if autostart_supported():
+            self.autostart_check.setEnabled(True)
+            self.autostart_check.setChecked(autostart_enabled())
+        else:
+            self.autostart_check.setChecked(False)
+            self.autostart_check.setEnabled(False)
+            self.autostart_check.setToolTip("开机自启动仅在打包后的 Windows 应用中可用")
+        self.autostart_check.blockSignals(False)
+
         self._on_wechat_service_changed(self.wechat_service_combo.currentText())
         self._on_email_service_changed(self.email_service_combo.currentText())
 
@@ -506,6 +535,7 @@ class SettingsPage(QWidget):
             **self._stage_config("final"),
             **self._stage_config("first"),
             **self._stage_config("second"),
+            "autostart_enabled": "1" if self.autostart_check.isChecked() else "0",
             "theme": self.theme_combo.currentData(),
         }
 

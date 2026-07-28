@@ -46,28 +46,37 @@ def main():
     app.setApplicationName('智能日程提醒助手')
     app.setOrganizationName('ScheduleAssistant')
     app.setQuitOnLastWindowClosed(False)  # 关闭窗口不退出，后台运行
+    background_start = '--background' in sys.argv
 
-    # 创建主窗口
-    splash = StartupSplash()
-    splash.show()
-    app.processEvents()
+    # A startup launch keeps only the tray and reminder service visible.
+    splash = None
+    if not background_start:
+        splash = StartupSplash()
+        splash.show()
+        app.processEvents()
 
     startup_worker = StartupWorker()
 
     def show_main_window():
         try:
-            window = startup_worker.window_type()
-            window.show()
-            app.processEvents()
-            splash.close()
+            window = startup_worker.window_type(show_developer_note=not background_start)
             app.main_window = window
+            if background_start:
+                window.tray.show()
+            else:
+                window.show()
+                app.processEvents()
+            if splash:
+                splash.close()
         except Exception as error:
-            splash.close()
+            if splash:
+                splash.close()
             QMessageBox.critical(None, '启动失败', f'无法打开应用：{error}')
             app.quit()
 
     def show_startup_error(message: str):
-        splash.close()
+        if splash:
+            splash.close()
         QMessageBox.critical(None, '启动失败', f'初始化本地服务失败：{message}')
         app.quit()
 
