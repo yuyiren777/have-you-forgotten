@@ -100,6 +100,7 @@ Have you forgotten?/
 | 模型 | 提供商 | 视觉 | 价格 |
 |------|--------|------|------|
 | GLM-4.7-Flash（文字）/ GLM-4.6V-Flash（图片） | 智谱 AI | ✅ | 免费 |
+外加智谱旗下的几乎所有文字和多模态模型
 
 ## 📱 推送通道
 
@@ -114,4 +115,4 @@ Have you forgotten?/
 
 ---
 
-Made with ❤️ by Claude Code
+I Made it with Claude Code and Codex
