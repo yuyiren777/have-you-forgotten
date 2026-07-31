@@ -333,6 +333,7 @@ class MainWindow(QMainWindow):
         self.tray.clear_alert()
 
     def _quit_app(self):
+        self.tray.shutdown()
         stop_reminder_service()
         from PyQt5.QtWidgets import QApplication
         QApplication.instance().quit()

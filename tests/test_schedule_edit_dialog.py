@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QDate, QTime
+from PyQt5.QtCore import QDate, Qt, QTime
 from PyQt5.QtWidgets import QApplication
 
 from gui.components.schedule_edit_dialog import (
@@ -46,6 +46,16 @@ def test_editor_loads_and_returns_corrected_time_and_location():
     assert changes["date"] == datetime.date(2026, 12, 30)
     assert changes["start_time"] == datetime.time(14, 30)
     assert changes["end_time"] == datetime.time(16, 0)
+    dialog.deleteLater()
+    app.processEvents()
+
+
+def test_editor_does_not_show_nonfunctional_context_help_button():
+    app = QApplication.instance() or QApplication([])
+    dialog = ScheduleEditDialog(_schedule())
+
+    assert not dialog.windowFlags() & Qt.WindowType.WindowContextHelpButtonHint
+
     dialog.deleteLater()
     app.processEvents()
 

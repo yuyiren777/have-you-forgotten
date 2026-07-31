@@ -2,7 +2,7 @@
 
 import datetime
 
-from PyQt5.QtCore import QDate, QTime
+from PyQt5.QtCore import QDate, Qt, QTime
 from PyQt5.QtWidgets import (
     QDateEdit,
     QDialog,
@@ -28,6 +28,7 @@ class ScheduleEditDialog(QDialog):
     def __init__(self, schedule, parent=None):
         super().__init__(parent)
         self.schedule = schedule
+        self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setObjectName("ScheduleEditDialog")
         self.setWindowTitle("修正日程")
         self.setMinimumWidth(520)

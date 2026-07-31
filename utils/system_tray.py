@@ -21,19 +21,20 @@ class SystemTray(QObject):
         self._alert_icon = self._make_icon('🔔')
         self._tray.setIcon(self._normal_icon)
 
-        # 菜单
-        menu = QMenu()
-        show_action = QAction('显示主窗口')
-        show_action.triggered.connect(self.show_window.emit)
-        menu.addAction(show_action)
+        # QSystemTrayIcon does not take ownership of its context menu. Keep the
+        # menu and actions alive for as long as the tray icon exists.
+        self._menu = QMenu()
+        self._show_action = QAction('显示主窗口', self)
+        self._show_action.triggered.connect(self.show_window.emit)
+        self._menu.addAction(self._show_action)
 
-        menu.addSeparator()
+        self._menu.addSeparator()
 
-        quit_action = QAction('退出')
-        quit_action.triggered.connect(self.quit_app.emit)
-        menu.addAction(quit_action)
+        self._quit_action = QAction('退出应用', self)
+        self._quit_action.triggered.connect(self.quit_app.emit)
+        self._menu.addAction(self._quit_action)
 
-        self._tray.setContextMenu(menu)
+        self._tray.setContextMenu(self._menu)
         self._tray.activated.connect(self._on_activated)
         self._tray.show()
 
@@ -73,3 +74,8 @@ class SystemTray(QObject):
 
     def hide(self):
         self._tray.hide()
+
+    def shutdown(self):
+        """Remove the icon immediately before the application event loop exits."""
+        self._tray.hide()
+        self._tray.setContextMenu(None)
