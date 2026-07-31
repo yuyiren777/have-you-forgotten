@@ -1,11 +1,12 @@
 """提醒记录页 — 查看已提醒和已过期的日程"""
 from PyQt5.QtWidgets import (
-    QWidget, QVBoxLayout, QScrollArea, QLabel, QTabWidget, QHBoxLayout
+    QWidget, QVBoxLayout, QScrollArea, QLabel, QTabWidget, QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from gui.components.schedule_card import ScheduleCard
+from db.database import db
 from db.models import Schedule, ReminderLog
 
 
@@ -89,10 +90,10 @@ class ReminderHistoryPage(QWidget):
             container_layout.addWidget(empty)
         else:
             for s in schedules:
-                card = ScheduleCard(s)
+                card = ScheduleCard(s, show_delete_button=True)
                 if status != 'expired':
                     card.status_changed.connect(self._on_status_change)
-                    card.deleted.connect(self._on_delete)
+                card.deleted.connect(self._on_delete)
                 container_layout.addWidget(card)
 
         container_layout.addStretch()
@@ -102,5 +103,15 @@ class ReminderHistoryPage(QWidget):
         self.refresh()
 
     def _on_delete(self, schedule_id: int):
-        Schedule.delete_by_id(schedule_id)
+        reply = QMessageBox.question(
+            self,
+            '确认删除',
+            '确定要删除这条日程及其提醒记录吗？此操作不可撤销。',
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        with db.atomic():
+            ReminderLog.delete().where(ReminderLog.schedule == schedule_id).execute()
+            Schedule.delete().where(Schedule.id == schedule_id).execute()
         self.refresh()

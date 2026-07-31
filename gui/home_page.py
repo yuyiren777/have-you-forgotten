@@ -13,8 +13,8 @@ from gui.components.image_drop_zone import ImageDropZone
 from gui.components.schedule_card import ScheduleCard
 from gui.components.shimmer_loader import ShimmerLoader
 from gui.components.toast_notification import ToastNotification
-from db.database import get_db
-from db.models import Schedule, Input
+from db.database import db, get_db
+from db.models import Schedule, Input, ReminderLog
 from core.workflow import process_input
 from core.deduplicator import find_duplicate, merge_schedule
 from core.api_client import get_model_name, is_setup_complete
@@ -324,11 +324,14 @@ class HomePage(QWidget):
         today_schedules = []
         tomorrow_schedules = []
         future_schedules = []
+        overdue_schedules = []
         undated_schedules = []
 
         for s in schedules:
             if not s.date:
                 undated_schedules.append(s)
+            elif s.date < today:
+                overdue_schedules.append(s)
             elif s.date == today:
                 today_schedules.append(s)
             elif s.date == today + datetime.timedelta(days=1):
@@ -339,6 +342,7 @@ class HomePage(QWidget):
         self._add_group('今天', today_schedules)
         self._add_group('明天', tomorrow_schedules)
         self._add_group('未来', future_schedules)
+        self._add_group('已过期', overdue_schedules)
         self._add_group('未设日期', undated_schedules)
 
         if not schedules:
@@ -375,7 +379,7 @@ class HomePage(QWidget):
         self.schedule_container.addWidget(group_label)
 
         for s in schedules:
-            card = ScheduleCard(s)
+            card = ScheduleCard(s, show_delete_button=True)
             card.status_changed.connect(self._on_status_change)
             card.deleted.connect(self._on_delete)
             self.schedule_container.addWidget(card)
@@ -394,7 +398,9 @@ class HomePage(QWidget):
         )
         if reply == QMessageBox.StandardButton.Yes:
             try:
-                Schedule.delete_by_id(schedule_id)
+                with db.atomic():
+                    ReminderLog.delete().where(ReminderLog.schedule == schedule_id).execute()
+                    Schedule.delete().where(Schedule.id == schedule_id).execute()
                 self.refresh_schedules()
             except Exception as e:
-                print(f'删除失败: {e}')
+                QMessageBox.critical(self, '删除失败', f'无法删除这条日程：{e}')

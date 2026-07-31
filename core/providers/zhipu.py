@@ -1,8 +1,8 @@
-"""智谱 AI — GLM-4.6V-Flash (OpenAI 兼容接口)"""
+"""智谱 AI OpenAI-compatible provider."""
 from openai import OpenAI
 
 DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/'
-DEFAULT_MODEL = 'glm-4.6v-flash'
+DEFAULT_MODEL = 'glm-4.7-flash'
 
 
 def call(
@@ -29,6 +29,8 @@ def call(
     client = OpenAI(
         api_key=api_key,
         base_url=base_url or DEFAULT_BASE_URL,
+        max_retries=0,
+        timeout=30.0,
     )
     response = client.chat.completions.create(
         model=model or DEFAULT_MODEL,

@@ -8,8 +8,11 @@ from utils.crypto import decrypt
 
 
 PROVIDER_NAMES = {
-    'zhipu': '智谱 GLM-4.6V-Flash',
+    'zhipu': '文字 GLM-4.7-Flash · 图片 GLM-4.6V-Flash',
 }
+
+TEXT_MODEL = 'glm-4.7-flash'
+VISION_MODEL = 'glm-4.6v-flash'
 
 
 def _get_config(key: str, default: str = '') -> str:
@@ -33,11 +36,18 @@ def get_provider_config() -> dict:
     provider = _get_config('model_provider', 'zhipu')
     if provider != 'zhipu':
         provider = 'zhipu'
+    legacy_model = _get_config('model_name', '')
+    mode = _get_config('model_mode', '')
+    if mode not in ('unified', 'separate'):
+        mode = 'unified' if legacy_model else 'separate'
     return {
         'provider': provider,
         'api_key': _get_config('model_api_key', ''),
         'api_base': _get_config('model_api_base', ''),
-        'model': _get_config('model_name', ''),
+        'model_mode': mode,
+        'unified_model': _get_config('unified_model_name', '') or legacy_model,
+        'text_model': _get_config('text_model_name', ''),
+        'image_model': _get_config('image_model_name', ''),
     }
 
 
@@ -56,8 +66,13 @@ def get_push_config() -> dict:
 
 def get_model_name() -> str:
     """获取当前使用的模型名称（用于显示）"""
-    provider = _get_config('model_provider', 'zhipu')
-    return PROVIDER_NAMES.get(provider, provider)
+    config = get_provider_config()
+    if config['model_mode'] == 'unified':
+        return f"统一模型 {config['unified_model'] or VISION_MODEL}"
+    return (
+        f"文字 {config['text_model'] or TEXT_MODEL} · "
+        f"图片 {config['image_model'] or VISION_MODEL}"
+    )
 
 
 def is_setup_complete() -> bool:
@@ -66,12 +81,15 @@ def is_setup_complete() -> bool:
     return completed and bool(_get_config('model_api_key', '').strip())
 
 
-def call_model(messages: list[dict], provider: str = '') -> str:
+def call_model(
+    messages: list[dict], provider: str = '', task_type: str = 'text'
+) -> str:
     """统一调用大模型
 
     Args:
         messages: 消息列表，支持多模态（图片用 base64）
         provider: 指定 provider，为空则从配置读取
+        task_type: text 使用文字模型，image 使用视觉模型
 
     Returns:
         模型回复文本
@@ -83,12 +101,19 @@ def call_model(messages: list[dict], provider: str = '') -> str:
     if provider and provider != 'zhipu':
         raise ValueError('当前版本仅支持智谱 AI 模型服务。')
 
+    if config.get('model_mode') == 'unified':
+        model = config.get('unified_model') or VISION_MODEL
+    elif task_type == 'image':
+        model = config.get('image_model') or VISION_MODEL
+    else:
+        model = config.get('text_model') or TEXT_MODEL
+
     from core.providers.zhipu import call
     return call(
         api_key=config['api_key'],
         messages=messages,
         base_url=config['api_base'],
-        model=config['model'],
+        model=model,
     )
 
 
@@ -161,7 +186,7 @@ def call_ocr(image_path: str, provider: str = '') -> str:
         },
     ]
 
-    return call_model(messages, provider)
+    return call_model(messages, provider, task_type='image')
 
 
 def call_text_extract(text: str, provider: str = '') -> str:
@@ -200,16 +225,39 @@ def call_text_extract(text: str, provider: str = '') -> str:
         {'role': 'user', 'content': text},
     ]
 
-    return call_model(messages, provider)
+    return call_model(messages, provider, task_type='text')
 
 
 def test_connection(provider: str = '') -> tuple[bool, str]:
-    """测试模型连接"""
+    """Test the selected model layout, including an actual image input."""
     try:
-        messages = [{'role': 'user', 'content': '你好，请回复"连接成功"。'}]
-        result = call_model(messages, provider)
-        if '连接成功' in result:
-            return True, '连接成功'
-        return True, f'连接正常（返回: {result[:50]}...）'
+        config = get_provider_config()
+        if config['model_mode'] == 'separate':
+            call_model(
+                [{'role': 'user', 'content': '请简短回复：文字模型连接成功。'}],
+                provider,
+                task_type='text',
+            )
+
+        pixel_png = (
+            'data:image/png;base64,'
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII='
+        )
+        call_model(
+            [
+                {
+                    'role': 'user',
+                    'content': [
+                        {'type': 'text', 'text': '请简短回复：图片模型连接成功。'},
+                        {'type': 'image_url', 'image_url': {'url': pixel_png}},
+                    ],
+                }
+            ],
+            provider,
+            task_type='image',
+        )
+        if config['model_mode'] == 'unified':
+            return True, '统一多模态模型连接成功，可处理文字和图片。'
+        return True, '文字模型和图片模型均连接成功。'
     except Exception as e:
         return False, f'连接失败: {e}'

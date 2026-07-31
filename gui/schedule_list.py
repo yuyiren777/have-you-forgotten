@@ -2,12 +2,13 @@
 import datetime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
-    QLineEdit, QComboBox, QPushButton, QMessageBox, QFrame, QCheckBox
+    QLineEdit, QComboBox, QPushButton, QMessageBox, QFrame
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from gui.components.schedule_card import ScheduleCard
+from gui.components.modern_checkbox import ModernCheckBox
 from gui.components.toast_notification import ToastNotification
 from db.database import db
 from db.models import ReminderLog, Schedule
@@ -70,7 +71,7 @@ class ScheduleListPage(QWidget):
         batch_layout.addWidget(self.count_label)
         batch_layout.addStretch()
 
-        self.select_all_box = QCheckBox('全选当前列表')
+        self.select_all_box = ModernCheckBox('全选当前列表')
         self.select_all_box.toggled.connect(self._set_all_selected)
         batch_layout.addWidget(self.select_all_box)
 

@@ -2,11 +2,11 @@
 import os
 from PyQt5.QtWidgets import (
     QMainWindow, QStackedWidget, QVBoxLayout, QWidget, QHBoxLayout, QLabel,
-    QPushButton, QStyle, QMessageBox
+    QApplication, QPushButton, QStyle, QMessageBox
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+from PyQt5.QtCore import QEvent, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QIcon, QKeySequence
-from PyQt5.QtWidgets import QAction, QShortcut
+from PyQt5.QtWidgets import QAction
 
 from gui.home_page import HomePage
 from gui.schedule_list import ScheduleListPage
@@ -14,6 +14,7 @@ from gui.reminder_history import ReminderHistoryPage
 from gui.settings_page import SettingsPage
 from gui.components.toast_notification import ToastNotification
 from utils.system_tray import SystemTray
+from utils.notification_sound import play_reminder_sound
 from core.reminder import start_reminder_service, stop_reminder_service
 import core.reminder as reminder_mod
 
@@ -30,6 +31,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(640, 480)
         self.resize(1280, 800)
         self._initial_placement_done = False
+        self._clipboard_paste_token = 0
         # APScheduler invokes reminder callbacks on a worker thread. Queue all
         # GUI work back to this window's thread before touching Qt widgets.
         self.reminder_notification.connect(self._show_reminder_toast, Qt.ConnectionType.QueuedConnection)
@@ -165,10 +167,39 @@ class MainWindow(QMainWindow):
         reminder_mod.on_alert_tray = self._queue_tray_alert
 
     def _setup_shortcuts(self):
-        # Ctrl+V 粘贴截图
-        from PyQt5.QtGui import QClipboard
-        shortcut = QShortcut(QKeySequence.StandardKey.Paste, self)
-        shortcut.activated.connect(self._paste_clipboard)
+        # Inspect paste before QTextEdit consumes it. Text-only clipboard data
+        # still follows Qt's normal paste path.
+        QApplication.instance().installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if (
+            event.type() == QEvent.Type.KeyPress
+            and event.matches(QKeySequence.StandardKey.Paste)
+            and self.isActiveWindow()
+            and self.stack.currentWidget() is self.home_page
+        ):
+            clipboard = QApplication.clipboard()
+            image_ready = self.home_page.drop_zone.clipboard_has_image(clipboard)
+            focus_widget = QApplication.focusWidget()
+            image_zone_focused = (
+                self.home_page.drop_zone.hasFocus()
+                or (
+                    focus_widget is not None
+                    and self.home_page.drop_zone.isAncestorOf(focus_widget)
+                )
+            )
+            if image_ready or image_zone_focused:
+                self._request_clipboard_image_paste(show_empty=image_zone_focused)
+                event.accept()
+                return True
+            mime = clipboard.mimeData()
+            if not mime or not mime.hasText():
+                # Some screenshot tools publish the bitmap shortly after the
+                # paste key is pressed. Retry without blocking the UI.
+                self._request_clipboard_image_paste(show_empty=False)
+                event.accept()
+                return True
+        return super().eventFilter(watched, event)
 
     def _setup_reminder(self):
         # 设置提醒回调
@@ -241,32 +272,40 @@ class MainWindow(QMainWindow):
             self,
         )
 
-    def _paste_clipboard(self):
-        """处理粘贴截图"""
-        from PyQt5.QtWidgets import QApplication
-        from PyQt5.QtGui import QPixmap
-        import uuid
-        from db.database import DATA_DIR
+    def _request_clipboard_image_paste(self, show_empty: bool = False):
+        """Paste now or retry briefly while a screenshot tool updates the clipboard."""
+        self._clipboard_paste_token += 1
+        token = self._clipboard_paste_token
+        self._try_clipboard_image_paste(token, attempt=0, show_empty=show_empty)
 
-        clipboard = QApplication.clipboard()
-        pixmap = clipboard.pixmap()
-
-        if not pixmap.isNull():
-            # 保存截图
-            images_dir = os.path.join(DATA_DIR, 'images')
-            os.makedirs(images_dir, exist_ok=True)
-            filename = f'clipboard_{uuid.uuid4().hex[:8]}.png'
-            filepath = os.path.join(images_dir, filename)
-            pixmap.save(filepath, 'PNG')
-
-            # 添加图片并跳转到首页
+    def _try_clipboard_image_paste(self, token: int, attempt: int, show_empty: bool):
+        if token != self._clipboard_paste_token:
+            return
+        added = self.home_page.drop_zone.paste_from_clipboard(QApplication.clipboard())
+        if added:
+            self._clipboard_paste_token += 1
             self._switch_page(0)
-            self.home_page.drop_zone._add_image(filepath)
-
+            self.home_page.drop_zone.setFocus(Qt.FocusReason.ShortcutFocusReason)
             ToastNotification.show_notification(
                 '截图已添加',
-                f'已从剪贴板保存截图: {filename}',
-                self
+                f'已从剪贴板添加 {len(added)} 张图片',
+                self,
+            )
+            return
+
+        delays = (80, 120, 180, 260, 360, 500)
+        if attempt < len(delays):
+            QTimer.singleShot(
+                delays[attempt],
+                lambda: self._try_clipboard_image_paste(
+                    token, attempt + 1, show_empty
+                ),
+            )
+        elif show_empty:
+            ToastNotification.show_notification(
+                '没有读取到截图',
+                '请等待截图完成后，再单击图片区域并按 Ctrl+V。',
+                self,
             )
 
     def _on_reminder_notify(self, title: str, message: str):
@@ -277,6 +316,7 @@ class MainWindow(QMainWindow):
         # A reminder needs an explicit acknowledgement. Running the same
         # right-bottom dialog modally prevents Windows from routing clicks to
         # the background main window instead of its action button.
+        play_reminder_sound()
         ToastNotification.show_notification(title, message, self, modal=True)
 
     def _queue_tray_alert(self):

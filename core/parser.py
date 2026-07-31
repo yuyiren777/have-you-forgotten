@@ -3,7 +3,32 @@ import datetime
 import json
 import re
 from typing import Optional
-from utils.date_parser import parse_relative_date
+from utils.date_parser import parse_relative_date, resolve_unspecified_year_date
+
+
+def _normalize_unspecified_year(
+    parsed: datetime.date, item: dict, today: datetime.date
+) -> datetime.date:
+    """Correct model dates when the original source stated only month and day."""
+    explicit_year = item.get("date_year_explicit")
+    if explicit_year is False or (explicit_year is None and parsed.year < today.year):
+        corrected = resolve_unspecified_year_date(parsed.month, parsed.day, today)
+        if corrected:
+            return corrected
+    return parsed
+
+
+def _parse_time(value) -> datetime.time | None:
+    """Parse a model clock value strictly instead of accepting malformed tails."""
+    if value is None or str(value).strip().lower() in ("", "none", "null"):
+        return None
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})(?::(\d{2}))?", str(value).strip())
+    if not match:
+        return None
+    try:
+        return datetime.time(*(int(part or 0) for part in match.groups()))
+    except ValueError:
+        return None
 
 
 def parse_schedule_item(item: dict, today: datetime.date = None) -> Optional[dict]:
@@ -39,8 +64,13 @@ def parse_schedule_item(item: dict, today: datetime.date = None) -> Optional[dic
     if date_str and date_str != 'null' and str(date_str).lower() != 'none':
         try:
             # 尝试解析 YYYY-MM-DD
-            if isinstance(date_str, str) and re.match(r'\d{4}-\d{2}-\d{2}', date_str):
-                result['date'] = datetime.date.fromisoformat(date_str)
+            if isinstance(date_str, str) and re.fullmatch(r'\d{4}-\d{2}-\d{2}', date_str.strip()):
+                parsed = datetime.date.fromisoformat(date_str.strip())
+                result['date'] = _normalize_unspecified_year(parsed, item, today)
+            elif isinstance(date_str, str) and (match := re.fullmatch(r'(\d{1,2})[-/](\d{1,2})', date_str.strip())):
+                result['date'] = resolve_unspecified_year_date(
+                    int(match.group(1)), int(match.group(2)), today
+                )
             else:
                 parsed = parse_relative_date(str(date_str), today)
                 if parsed:
@@ -55,25 +85,8 @@ def parse_schedule_item(item: dict, today: datetime.date = None) -> Optional[dic
                 pass
 
     # 解析时间
-    start = item.get('start_time', '')
-    if start and str(start) not in ('null', 'None', ''):
-        try:
-            if isinstance(start, str):
-                parts = start.strip().split(':')
-                if len(parts) >= 2:
-                    result['start_time'] = datetime.time(int(parts[0]), int(parts[1]))
-        except Exception:
-            pass
-
-    end = item.get('end_time', '')
-    if end and str(end) not in ('null', 'None', ''):
-        try:
-            if isinstance(end, str):
-                parts = end.strip().split(':')
-                if len(parts) >= 2:
-                    result['end_time'] = datetime.time(int(parts[0]), int(parts[1]))
-        except Exception:
-            pass
+    result['start_time'] = _parse_time(item.get('start_time'))
+    result['end_time'] = _parse_time(item.get('end_time'))
 
     # 解析重复规则
     repeat = item.get('repeat', 'none')

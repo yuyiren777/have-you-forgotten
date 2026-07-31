@@ -1,7 +1,6 @@
 """中文日期解析工具"""
 import re
 import datetime
-from dateutil import parser as du_parser
 from dateutil.relativedelta import relativedelta
 from utils.date_context import get_date_context
 
@@ -21,6 +20,55 @@ _WEEKDAY_CN = {
 }
 
 
+def resolve_unspecified_year_date(
+    month: int, day: int, today: datetime.date | None = None
+) -> datetime.date | None:
+    """Resolve a month/day without a year to the nearest non-past date."""
+    today = today or get_date_context().today
+    for year in range(today.year, today.year + 9):
+        try:
+            candidate = datetime.date(year, month, day)
+        except ValueError:
+            continue
+        if candidate >= today:
+            return candidate
+    return None
+
+
+def resolve_month_offset_date(
+    months: int, day: int, today: datetime.date | None = None
+) -> datetime.date | None:
+    """Return a valid day in a future month without silently clamping it."""
+    today = today or get_date_context().today
+    month_start = today.replace(day=1) + relativedelta(months=months)
+    try:
+        return month_start.replace(day=day)
+    except ValueError:
+        return None
+
+
+def _parse_chinese_number(value: str) -> int | None:
+    if value.isdigit():
+        return int(value)
+    if value in _CN_NUM:
+        return _CN_NUM[value]
+    if '十' not in value:
+        return None
+    tens_text, ones_text = value.split('十', 1)
+    tens = 1 if not tens_text else _CN_NUM.get(tens_text)
+    ones = 0 if not ones_text else _CN_NUM.get(ones_text)
+    if tens is None or ones is None:
+        return None
+    return tens * 10 + ones
+
+
+def _safe_time(hour: int, minute: int) -> datetime.time | None:
+    try:
+        return datetime.time(hour, minute)
+    except ValueError:
+        return None
+
+
 def parse_relative_date(text: str, today: datetime.date = None) -> datetime.date | None:
     """解析相对日期文本，返回绝对日期
 
@@ -38,6 +86,26 @@ def parse_relative_date(text: str, today: datetime.date = None) -> datetime.date
         today = get_date_context().today
 
     text = text.strip()
+
+    explicit_match = re.fullmatch(
+        r'(\d{4})\s*(?:-|/|\u5e74)\s*(\d{1,2})\s*(?:-|/|\u6708)\s*'
+        r'(\d{1,2})\s*(?:\u65e5|\u53f7)?',
+        text,
+    )
+    if explicit_match:
+        try:
+            return datetime.date(*(int(value) for value in explicit_match.groups()))
+        except ValueError:
+            return None
+
+    month_day_match = re.fullmatch(
+        r'(\d{1,2})\s*(?:-|/|\u6708)\s*(\d{1,2})\s*(?:\u65e5|\u53f7)?',
+        text,
+    )
+    if month_day_match:
+        return resolve_unspecified_year_date(
+            int(month_day_match.group(1)), int(month_day_match.group(2)), today
+        )
 
     # 绝对日期（YYYY-MM-DD 或 YYYY/MM/DD）
     for fmt in ['%Y-%m-%d', '%Y/%m/%d', '%Y年%m月%d日', '%Y年%m月%d号']:
@@ -63,17 +131,17 @@ def parse_relative_date(text: str, today: datetime.date = None) -> datetime.date
         return today + datetime.timedelta(days=3)
 
     # N天后
-    m = re.match(r'(\d+)\s*天[后之]', text)
+    m = re.fullmatch(r'(\d+)\s*天(?:后|之后)', text)
     if m:
         return today + datetime.timedelta(days=int(m.group(1)))
 
     # N周后
-    m = re.match(r'(\d+)\s*周[后之]', text)
+    m = re.fullmatch(r'(\d+)\s*周(?:后|之后)', text)
     if m:
         return today + datetime.timedelta(weeks=int(m.group(1)))
 
     # N个月后
-    m = re.match(r'(\d+)\s*个?月[后之]', text)
+    m = re.fullmatch(r'(\d+)\s*个?月(?:后|之后)', text)
     if m:
         return today + relativedelta(months=int(m.group(1)))
 
@@ -88,18 +156,12 @@ def parse_relative_date(text: str, today: datetime.date = None) -> datetime.date
             return today + datetime.timedelta(days=days_ahead)
 
     # 下个月X号
-    m = re.match(r'下个?月\s*(\d+|[一二三四五六七八九十]+)\s*[号日]', text)
+    m = re.fullmatch(r'下个?月\s*(\d+|[一二三四五六七八九十]+)\s*[号日]', text)
     if m:
-        day_str = m.group(1)
-        day = _CN_NUM.get(day_str, int(day_str) if day_str.isdigit() else 1)
-        return today.replace(day=1) + relativedelta(months=1, day=min(day, 28))
+        day = _parse_chinese_number(m.group(1))
+        return resolve_month_offset_date(1, day, today) if day is not None else None
 
     # 尝试 dateutil 兜底
-    try:
-        return du_parser.parse(text, fuzzy=True).date()
-    except Exception:
-        pass
-
     return None
 
 
@@ -117,16 +179,13 @@ def parse_chinese_datetime(text: str) -> tuple[datetime.date | None, datetime.ti
     m = re.search(r'(\d{1,2})\s*月\s*(\d{1,2})\s*[日号]', text)
     if m:
         month, day = int(m.group(1)), int(m.group(2))
-        year = today.year
-        date = datetime.date(year, month, day)
-        if date < today:
-            date = datetime.date(year + 1, month, day)
+        date = resolve_unspecified_year_date(month, day, today)
 
     # 尝试匹配时间 "XX:XX" 或 "X点X分" 或 "下午X点"
     m = re.search(r'(\d{1,2}):(\d{2})', text)
     if m:
         hour, minute = int(m.group(1)), int(m.group(2))
-        time = datetime.time(hour, minute)
+        time = _safe_time(hour, minute)
     else:
         m = re.search(r'(上午|下午|晚上|中午|早上)?\s*(\d{1,2})\s*[点时]\s*(\d{1,2})?\s*分?', text)
         if m:
@@ -141,17 +200,25 @@ def parse_chinese_datetime(text: str) -> tuple[datetime.date | None, datetime.ti
                     hour += 12
             elif '上午' in period or '早上' in period:
                 pass  # 保持原值
-            time = datetime.time(hour, minute)
+            time = _safe_time(hour, minute)
 
     return date, time
 
 
-def format_remaining_time(schedule_date: datetime.date | None, schedule_time: datetime.time = None) -> str:
+def format_remaining_time(
+    schedule_date: datetime.date | None,
+    schedule_time: datetime.time = None,
+    now: datetime.datetime | None = None,
+) -> str:
     """格式化距离日程的剩余时间"""
     if not schedule_date:
         return '未设日期'
 
-    now = get_date_context().now.replace(tzinfo=None)
+    now = now or get_date_context().now
+    now = now.replace(tzinfo=None)
+
+    if schedule_time is None and schedule_date == now.date():
+        return '今天'
 
     if schedule_time:
         target = datetime.datetime.combine(schedule_date, schedule_time)
@@ -161,10 +228,19 @@ def format_remaining_time(schedule_date: datetime.date | None, schedule_time: da
     diff = target - now
     total_seconds = diff.total_seconds()
 
+    if total_seconds == 0:
+        return '现在'
     if total_seconds < 0:
+        if schedule_date == now.date():
+            if schedule_time:
+                minutes = max(1, int((-total_seconds + 59) // 60))
+                return f'已开始{minutes}分钟'
+            return '今天'
         return '已过期'
+    elif total_seconds < 60:
+        return '不到1分钟'
     elif total_seconds < 3600:
-        minutes = int(total_seconds // 60)
+        minutes = max(1, int((total_seconds + 59) // 60))
         return f'还有{minutes}分钟'
     elif total_seconds < 86400:
         hours = int(total_seconds // 3600)

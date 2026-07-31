@@ -2,7 +2,7 @@
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtWidgets import (
     QComboBox,
-    QCheckBox,
+    QButtonGroup,
     QFormLayout,
     QFrame,
     QHBoxLayout,
@@ -10,6 +10,7 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QStackedWidget,
     QStyle,
@@ -18,6 +19,7 @@ from PyQt5.QtWidgets import (
 )
 
 from core.api_client import test_connection
+from gui.components.modern_checkbox import ModernCheckBox
 from db.database import get_db
 from db.models import Config
 from utils.crypto import decrypt, encrypt
@@ -173,33 +175,165 @@ class SettingsPage(QWidget):
         return page, form
 
     def _build_model_step(self) -> QWidget:
-        page, form = self._build_step(
-            "连接 AI 模型", "API Key 为必填项，用于识别文字和图片中的日程。API 地址和模型名称均可留空，填上自定义配置会更灵活。"
+        page = QWidget()
+        page_layout = QVBoxLayout(page)
+        page_layout.setContentsMargins(0, 0, 0, 0)
+
+        self.model_scroll = QScrollArea()
+        self.model_scroll.setObjectName("ModelSettingsScroll")
+        self.model_scroll.setWidgetResizable(True)
+        self.model_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.model_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.model_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+
+        scroll_content = QWidget()
+        scroll_content.setObjectName("ModelSettingsContent")
+        scroll_layout = QVBoxLayout(scroll_content)
+        scroll_layout.setContentsMargins(8, 8, 16, 12)
+        scroll_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop)
+
+        card = QFrame()
+        card.setObjectName("SettingsCard")
+        card.setMaximumWidth(900)
+        card.setMinimumWidth(620)
+        card.setMinimumHeight(590)
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(28, 24, 28, 26)
+        card_layout.setSpacing(12)
+
+        heading = QLabel("连接 AI 模型")
+        heading.setObjectName("SettingsStepTitle")
+        card_layout.addWidget(heading)
+
+        hint = QLabel(
+            "API Key 为必填项。选择一个多模态模型处理全部内容，或分别配置文字模型和图片多模态模型。模型名称留空即可使用免费默认模型。"
         )
+        hint.setObjectName("SettingsStepHint")
+        hint.setWordWrap(True)
+        card_layout.addWidget(hint)
 
         self.provider_combo = QComboBox()
-        self.provider_combo.addItem("zhipu - 智谱 GLM-4.6V-Flash")
+        self.provider_combo.addItem("zhipu - 智谱（文字 GLM-4.7-Flash / 图片 GLM-4.6V-Flash）")
         self.provider_combo.setEnabled(False)
-        form.addRow("模型提供商", self.provider_combo)
+        provider_block = self._model_field("模型服务", self.provider_combo)
+        card_layout.addWidget(provider_block)
+
+        self.model_mode_widget = QWidget()
+        self.model_mode_widget.setMinimumHeight(44)
+        mode_layout = QHBoxLayout(self.model_mode_widget)
+        mode_layout.setContentsMargins(0, 0, 0, 0)
+        mode_layout.setSpacing(6)
+        self.model_mode_group = QButtonGroup(self)
+        self.model_mode_group.setExclusive(True)
+        self.unified_mode_btn = QPushButton("统一多模态模型")
+        self.separate_mode_btn = QPushButton("文字 / 图片分开")
+        for button, mode in (
+            (self.unified_mode_btn, "unified"),
+            (self.separate_mode_btn, "separate"),
+        ):
+            button.setObjectName("ModelModeButton")
+            button.setCheckable(True)
+            button.setMinimumHeight(42)
+            button.clicked.connect(lambda _checked, value=mode: self._set_model_mode(value))
+            self.model_mode_group.addButton(button)
+            mode_layout.addWidget(button, 1)
+
+        mode_label = QLabel("模型使用方式")
+        mode_label.setObjectName("ModelFieldLabel")
+        card_layout.addWidget(mode_label)
+        card_layout.addWidget(self.model_mode_widget)
+        self.model_mode_hint = QLabel()
+        self.model_mode_hint.setObjectName("ModelModeHint")
+        self.model_mode_hint.setWordWrap(True)
+        card_layout.addWidget(self.model_mode_hint)
 
         self.api_key_input = QLineEdit()
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key_input.setPlaceholderText("必填：输入 API Key")
-        form.addRow("API Key（必填）", self.api_key_input)
 
         self.api_base_input = QLineEdit()
         self.api_base_input.setPlaceholderText("选填：留空使用默认地址")
-        form.addRow("API 地址（选填）", self.api_base_input)
 
-        self.model_name_input = QLineEdit()
-        self.model_name_input.setPlaceholderText("选填：留空使用默认模型")
-        form.addRow("模型名称（选填）", self.model_name_input)
+        credentials_row = QHBoxLayout()
+        credentials_row.setSpacing(12)
+        credentials_row.addWidget(
+            self._model_field("API Key（必填）", self.api_key_input), 1
+        )
+        credentials_row.addWidget(
+            self._model_field("API 地址（选填）", self.api_base_input), 1
+        )
+        card_layout.addLayout(credentials_row)
+
+        self.unified_model_input = QLineEdit()
+        self.unified_model_input.setPlaceholderText("选填：留空使用 GLM-4.6V-Flash")
+        self.unified_model_container = self._model_field(
+            "多模态模型（文字和图片）", self.unified_model_input
+        )
+
+        self.text_model_input = QLineEdit()
+        self.text_model_input.setPlaceholderText("选填：留空使用 GLM-4.7-Flash")
+        self.text_model_container = self._model_field(
+            "文字模型", self.text_model_input
+        )
+
+        self.image_model_input = QLineEdit()
+        self.image_model_input.setPlaceholderText("选填：留空使用 GLM-4.6V-Flash")
+        self.image_model_container = self._model_field(
+            "图片多模态模型", self.image_model_input
+        )
+
+        model_row = QHBoxLayout()
+        model_row.setSpacing(12)
+        model_row.addWidget(self.unified_model_container, 1)
+        model_row.addWidget(self.text_model_container, 1)
+        model_row.addWidget(self.image_model_container, 1)
+        card_layout.addLayout(model_row)
 
         self.connection_test_btn = QPushButton("测试连接")
         self.connection_test_btn.setObjectName("SecondaryButton")
         self.connection_test_btn.clicked.connect(self._test_connection)
-        form.addRow("", self.connection_test_btn)
+        action_row = QHBoxLayout()
+        action_row.addWidget(self.connection_test_btn)
+        action_row.addStretch()
+        card_layout.addLayout(action_row)
+
+        self._set_model_mode("separate")
+        scroll_layout.addWidget(card)
+        scroll_layout.addStretch()
+        self.model_scroll.setWidget(scroll_content)
+        page_layout.addWidget(self.model_scroll)
         return page
+
+    @staticmethod
+    def _model_field(label_text: str, field: QWidget) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        label = QLabel(label_text)
+        label.setObjectName("ModelFieldLabel")
+        layout.addWidget(label)
+        field.setMinimumHeight(42)
+        layout.addWidget(field)
+        return container
+
+    def _set_model_mode(self, mode: str):
+        self._model_mode = mode if mode in ("unified", "separate") else "separate"
+        unified = self._model_mode == "unified"
+        self.unified_mode_btn.setChecked(unified)
+        self.separate_mode_btn.setChecked(not unified)
+        for button in (self.unified_mode_btn, self.separate_mode_btn):
+            button.setProperty("active", button.isChecked())
+            button.style().unpolish(button)
+            button.style().polish(button)
+        self.unified_model_container.setVisible(unified)
+        self.text_model_container.setVisible(not unified)
+        self.image_model_container.setVisible(not unified)
+        self.model_mode_hint.setText(
+            "一个支持图片输入的多模态模型同时处理文字与图片。"
+            if unified
+            else "文字模型负责纯文字输入，图片多模态模型专门处理截图和图片。"
+        )
 
     def _build_reminder_step(self) -> QWidget:
         page, form = self._build_step(
@@ -220,7 +354,13 @@ class SettingsPage(QWidget):
             self.second_days_spin, self.second_hours_spin, self.second_minutes_spin
         ))
 
-        self.autostart_check = QCheckBox("开机后后台启动（可在系统托盘中打开）")
+        self.autostart_check = ModernCheckBox("开机后后台启动（可在系统托盘中打开）")
+        self.autostart_check.setObjectName("AutostartCheck")
+        self.autostart_check.setToolTip("启用后，登录 Windows 时自动在后台启动提醒服务")
+        autostart_font = self.autostart_check.font()
+        autostart_font.setBold(True)
+        self.autostart_check.setFont(autostart_font)
+        self.autostart_check.setMinimumHeight(42)
         self.autostart_check.toggled.connect(self._on_autostart_changed)
         form.addRow("启动选项", self.autostart_check)
         return page
@@ -430,6 +570,10 @@ class SettingsPage(QWidget):
             "model_api_key": "",
             "model_api_base": "",
             "model_name": "",
+            "model_mode": "",
+            "unified_model_name": "",
+            "text_model_name": "",
+            "image_model_name": "",
             "wechat_service": "none",
             "wechat_token": "",
             "email_service": "none",
@@ -469,7 +613,15 @@ class SettingsPage(QWidget):
         self.theme_combo.blockSignals(False)
         self.api_key_input.setText(configs["model_api_key"])
         self.api_base_input.setText(configs["model_api_base"])
-        self.model_name_input.setText(configs["model_name"])
+        saved_mode = configs["model_mode"]
+        if saved_mode not in ("unified", "separate"):
+            saved_mode = "unified" if configs["model_name"] else "separate"
+        self.unified_model_input.setText(
+            configs["unified_model_name"] or configs["model_name"]
+        )
+        self.text_model_input.setText(configs["text_model_name"])
+        self.image_model_input.setText(configs["image_model_name"])
+        self._set_model_mode(saved_mode)
 
         wechat_map = {"none": 0, "serverchan": 1, "pushplus": 2, "wxpusher": 3}
         self.wechat_service_combo.setCurrentIndex(wechat_map.get(configs["wechat_service"], 0))
@@ -515,11 +667,17 @@ class SettingsPage(QWidget):
 
     def _config_data(self) -> dict:
         final_advance = self._reminder_minutes("final")
+        unified_model = self.unified_model_input.text().strip()
         return {
             "model_provider": self.provider_combo.currentText().split(" - ")[0],
             "model_api_key": encrypt(self.api_key_input.text().strip()),
             "model_api_base": self.api_base_input.text().strip(),
-            "model_name": self.model_name_input.text().strip(),
+            "model_mode": self._model_mode,
+            "unified_model_name": unified_model,
+            "text_model_name": self.text_model_input.text().strip(),
+            "image_model_name": self.image_model_input.text().strip(),
+            # Older versions read model_name as one model for every task.
+            "model_name": unified_model if self._model_mode == "unified" else "",
             "wechat_service": self.wechat_service_combo.currentText().split(" - ")[0],
             "wechat_token": encrypt(self.wechat_token_input.text().strip()),
             "email_service": self.email_service_combo.currentText().split(" - ")[0],

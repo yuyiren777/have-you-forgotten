@@ -4,10 +4,12 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QMainWindow
 from PyQt5.QtTest import QSignalSpy
 
 from gui.settings_page import SettingsPage
+from gui.components.modern_checkbox import ModernCheckBox
 from gui.home_page import HomePage
 from gui.main_window import MainWindow
 
@@ -53,6 +55,55 @@ class SettingsPageTests(unittest.TestCase):
         self.assertTrue(self.page._validate_step(0))
         self.assertTrue(self.page._validate_step(2))
         self.assertTrue(self.page._validate_step(3))
+
+    def test_model_mode_switches_between_unified_and_separate_fields(self):
+        self.page._set_model_mode("unified")
+        self.assertTrue(self.page.unified_model_input.isVisibleTo(self.page))
+        self.assertFalse(self.page.text_model_input.isVisibleTo(self.page))
+        self.assertFalse(self.page.image_model_input.isVisibleTo(self.page))
+
+        self.page._set_model_mode("separate")
+        self.assertFalse(self.page.unified_model_input.isVisibleTo(self.page))
+        self.assertTrue(self.page.text_model_input.isVisibleTo(self.page))
+        self.assertTrue(self.page.image_model_input.isVisibleTo(self.page))
+
+    def test_model_settings_use_a_visible_vertical_scrollbar(self):
+        self.assertTrue(self.page.model_scroll.widgetResizable())
+        self.assertEqual(
+            self.page.model_scroll.verticalScrollBarPolicy(),
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn,
+        )
+        self.assertEqual(
+            self.page.model_scroll.horizontalScrollBarPolicy(),
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
+        )
+
+    def test_autostart_uses_high_visibility_checkbox(self):
+        self.assertIsInstance(self.page.autostart_check, ModernCheckBox)
+        self.assertGreaterEqual(self.page.autostart_check.minimumHeight(), 42)
+        self.assertTrue(self.page.autostart_check.toolTip())
+
+    def test_separate_model_names_are_saved_independently(self):
+        self.page._set_model_mode("separate")
+        self.page.text_model_input.setText("text-model")
+        self.page.image_model_input.setText("vision-model")
+
+        data = self.page._config_data()
+
+        self.assertEqual(data["model_mode"], "separate")
+        self.assertEqual(data["text_model_name"], "text-model")
+        self.assertEqual(data["image_model_name"], "vision-model")
+        self.assertEqual(data["model_name"], "")
+
+    def test_unified_model_keeps_legacy_model_key_in_sync(self):
+        self.page._set_model_mode("unified")
+        self.page.unified_model_input.setText("one-vision-model")
+
+        data = self.page._config_data()
+
+        self.assertEqual(data["model_mode"], "unified")
+        self.assertEqual(data["unified_model_name"], "one-vision-model")
+        self.assertEqual(data["model_name"], "one-vision-model")
 
     def test_reminder_stages_save_independently(self):
         self.page.first_days_spin.setValue(300)

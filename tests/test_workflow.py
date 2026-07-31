@@ -94,12 +94,37 @@ class WorkflowTests(unittest.TestCase):
 
             self.assertEqual([item["title"] for item in schedules], ["会议 A", "会议 B"])
             self.assertEqual(call_model.call_count, 2)
+            self.assertEqual(call_model.call_args_list[0].kwargs["task_type"], "image")
             first_messages = call_model.call_args_list[0].args[0]
             image_url = first_messages[1]["content"][1]["image_url"]["url"]
             self.assertTrue(image_url.startswith("data:image/png;base64,"))
         finally:
             for path in paths:
                 os.unlink(path)
+
+    @patch("core.workflow.call_model")
+    def test_empty_text_result_is_retried_then_saved_as_undated_todo(self, call_model):
+        call_model.side_effect = ['{"schedules": []}', '{"schedules": []}']
+
+        schedules = process_input("text", "理发")
+
+        self.assertEqual(call_model.call_count, 2)
+        self.assertEqual(schedules[0]["title"], "理发")
+        self.assertIsNone(schedules[0]["date"])
+
+    @patch("core.workflow.time.sleep")
+    @patch("core.workflow.call_model")
+    def test_rate_limit_is_retried_without_immediate_failure(self, call_model, sleep):
+        busy = RuntimeError("Error code: 429 - 访问量过大，请稍后再试")
+        busy.status_code = 429
+        call_model.side_effect = [busy, '{"schedules": [{"title": "交材料"}]}']
+        progress = []
+
+        schedules = process_input("text", "交材料", progress=progress.append)
+
+        self.assertEqual(schedules[0]["title"], "交材料")
+        sleep.assert_called_once_with(3)
+        self.assertTrue(any("自动重试" in message for message in progress))
 
 
 if __name__ == "__main__":

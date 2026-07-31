@@ -5,13 +5,12 @@ import base64
 import json
 import os
 import re
+import time
 from collections.abc import Callable
 from typing import Literal, TypedDict
 
-from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.output_parsers import PydanticOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableLambda
 from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,6 +27,10 @@ class ScheduleItem(BaseModel):
     title: str = Field(min_length=1)
     description: str | None = None
     date: str | None = None
+    date_year_explicit: bool | None = Field(
+        default=None,
+        description="True only when the original source explicitly contains a year.",
+    )
     start_time: str | None = None
     end_time: str | None = None
     location: str | None = None
@@ -58,11 +61,21 @@ _SYSTEM_PROMPT = """你是一个日程提取助手。请从用户提供的内容
 重复规则使用 none、daily、weekly:1（周一为 1）或 monthly:15。
 
 {format_instructions}
+日期规则：只有原文明确写出年份时，date_year_explicit 才能设为 true。
+原文只有月日（例如“12月30日”）时必须设为 false，并选择从今天起最近一次尚未过去的该月日；
+年底遇到较小月份时应跨到下一年。不得使用图片元数据、训练数据或自行猜测的年份。
 只返回符合上述结构的 JSON，不要添加解释。"""
 
 _text_prompt = ChatPromptTemplate.from_messages(
     [("system", _SYSTEM_PROMPT), ("human", "{content}")]
 )
+
+_EMPTY_RESULT_INSTRUCTION = """
+这是用户主动提交、希望软件帮忙记住的内容。即使没有日期、时间，或者只写了“理发”一类简短事项，
+也必须提取为至少一条待办；不确定的日期和时间填写 null。不要因为它不像传统会议日程而返回空数组。
+"""
+
+_RETRY_DELAYS = (3, 5, 8, 12, 15)
 
 
 def _emit(state: WorkflowState, message: str) -> None:
@@ -79,8 +92,47 @@ def _to_provider_messages(prompt_value) -> list[dict]:
     ]
 
 
-def _call_prompt(prompt_value, provider: str = "") -> str:
-    return call_model(_to_provider_messages(prompt_value), provider)
+def _is_retryable_model_error(error: Exception) -> bool:
+    status_code = getattr(error, "status_code", None)
+    if status_code in (409, 429):
+        return True
+    message = str(error).lower()
+    markers = (
+        "error code: 409",
+        "error code: 429",
+        "'code': '1305'",
+        '"code":"1305"',
+        "访问量过大",
+        "稍后再试",
+        "rate limit",
+        "too many requests",
+        "conflict",
+    )
+    return any(marker in message for marker in markers)
+
+
+def _call_with_retry(
+    messages: list[dict],
+    state: WorkflowState,
+    task_type: Literal["text", "image"],
+) -> str:
+    provider = state.get("provider", "")
+    for attempt in range(len(_RETRY_DELAYS) + 1):
+        try:
+            return call_model(messages, provider, task_type=task_type)
+        except Exception as error:
+            if not _is_retryable_model_error(error) or attempt >= len(_RETRY_DELAYS):
+                if _is_retryable_model_error(error):
+                    raise RuntimeError(
+                        f"AI 服务持续繁忙，已自动重试 {attempt + 1} 次仍未成功，请稍后再试。"
+                    ) from error
+                raise
+            delay = _RETRY_DELAYS[attempt]
+            _emit(
+                state,
+                f"AI 服务繁忙，{delay} 秒后自动重试（{attempt + 1}/{len(_RETRY_DELAYS)}）...",
+            )
+            time.sleep(delay)
 
 
 def _validate_input(state: WorkflowState) -> dict:
@@ -95,16 +147,15 @@ def _validate_input(state: WorkflowState) -> dict:
 
 def _extract_text(state: WorkflowState) -> dict:
     _emit(state, "正在调用模型识别文字...")
-    provider = state.get("provider", "")
     date_context = state["date_context"]
-    chain = _text_prompt | RunnableLambda(lambda value: _call_prompt(value, provider))
-    response = chain.invoke(
+    prompt_value = _text_prompt.invoke(
         {
             "content": str(state["source_data"]),
             "current_datetime": date_context.to_prompt_text(),
             "format_instructions": _output_parser.get_format_instructions(),
         }
     )
+    response = _call_with_retry(_to_provider_messages(prompt_value), state, "text")
     return {"raw_responses": [response]}
 
 
@@ -125,34 +176,34 @@ def _image_data_url(image_path: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
-def _extract_images(state: WorkflowState) -> dict:
-    paths = state["source_data"]
-    paths = paths if isinstance(paths, list) else [paths]
-    responses = []
-    provider = state.get("provider", "")
+def _image_messages(state: WorkflowState, path: str, fallback: bool = False) -> list[dict]:
     date_context = state["date_context"]
     system_text = _SYSTEM_PROMPT.format(
         current_datetime=date_context.to_prompt_text(),
         format_instructions=_output_parser.get_format_instructions(),
     )
+    instruction = "请提取这张图片中的全部日程信息。"
+    if fallback:
+        instruction += _EMPTY_RESULT_INSTRUCTION
+    return [
+        {"role": "system", "content": system_text},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": instruction},
+                {"type": "image_url", "image_url": {"url": _image_data_url(path)}},
+            ],
+        },
+    ]
 
+
+def _extract_images(state: WorkflowState) -> dict:
+    paths = state["source_data"]
+    paths = paths if isinstance(paths, list) else [paths]
+    responses = []
     for index, path in enumerate(paths, start=1):
         _emit(state, f"正在识别图片 ({index}/{len(paths)})...")
-        messages = [
-            SystemMessage(content=system_text),
-            HumanMessage(
-                content=[
-                    {"type": "text", "text": "请提取这张图片中的全部日程信息。"},
-                    {"type": "image_url", "image_url": {"url": _image_data_url(path)}},
-                ]
-            ),
-        ]
-        chain = RunnableLambda(lambda value: call_model(value, provider))
-        provider_messages = [
-            {"role": "system", "content": messages[0].content},
-            {"role": "user", "content": messages[1].content},
-        ]
-        responses.append(chain.invoke(provider_messages))
+        responses.append(_call_with_retry(_image_messages(state, path), state, "image"))
     return {"raw_responses": responses}
 
 
@@ -200,8 +251,83 @@ def _parse_responses(state: WorkflowState) -> dict:
     _emit(state, "识别完成，正在校验结构...")
     items = []
     for response in state.get("raw_responses", []):
-        items.extend(parse_model_response(response))
+        try:
+            items.extend(parse_model_response(response))
+        except ValueError:
+            continue
+
+    if items:
+        return {"items": items}
+
+    _emit(state, "未识别到明确日程，正在进行兜底识别...")
+    retry_responses = []
+    if state["source_type"] == "text":
+        date_context = state["date_context"]
+        prompt_value = _text_prompt.invoke(
+            {
+                "content": f"{state['source_data']}\n\n{_EMPTY_RESULT_INSTRUCTION}",
+                "current_datetime": date_context.to_prompt_text(),
+                "format_instructions": _output_parser.get_format_instructions(),
+            }
+        )
+        retry_responses.append(
+            _call_with_retry(_to_provider_messages(prompt_value), state, "text")
+        )
+    else:
+        paths = state["source_data"]
+        paths = paths if isinstance(paths, list) else [paths]
+        for path in paths:
+            retry_responses.append(
+                _call_with_retry(_image_messages(state, path, fallback=True), state, "image")
+            )
+
+    for response in retry_responses:
+        try:
+            items.extend(parse_model_response(response))
+        except ValueError:
+            continue
+
+    if not items:
+        items = _build_local_fallback_items(state)
+        _emit(state, "AI 未能提取结构，已保留为可编辑的无日期待办。")
     return {"items": items}
+
+
+def _build_local_fallback_items(state: WorkflowState) -> list[dict]:
+    """Never discard user-submitted content when the model returns no schedules."""
+    if state["source_type"] == "text":
+        content = " ".join(str(state["source_data"]).split()).strip()
+        return [
+            {
+                "title": content[:120] or "未命名待办",
+                "description": content or None,
+                "date": None,
+                "date_year_explicit": False,
+                "start_time": None,
+                "end_time": None,
+                "location": None,
+                "repeat": "none",
+                "urgency": "normal",
+            }
+        ]
+
+    paths = state["source_data"]
+    paths = paths if isinstance(paths, list) else [paths]
+    multiple = len(paths) > 1
+    return [
+        {
+            "title": f"待整理的图片备忘（{index}）" if multiple else "待整理的图片备忘",
+            "description": "AI 未能从图片中提取明确日程，请打开日程后补充内容。",
+            "date": None,
+            "date_year_explicit": False,
+            "start_time": None,
+            "end_time": None,
+            "location": None,
+            "repeat": "none",
+            "urgency": "normal",
+        }
+        for index, _path in enumerate(paths, start=1)
+    ]
 
 
 def _normalize_schedules(state: WorkflowState) -> dict:

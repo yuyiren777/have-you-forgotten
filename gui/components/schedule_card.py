@@ -1,11 +1,12 @@
 """日程卡片组件 — 用于列表展示"""
 from PyQt5.QtWidgets import (
-    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QWidget, QCheckBox
+    QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QWidget
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QAction
 
+from gui.components.modern_checkbox import ModernCheckBox
 from utils.date_parser import format_remaining_time, format_schedule_time
 
 
@@ -22,9 +23,10 @@ class ScheduleCard(QFrame):
         1: '#FF9800',  # 重要 - 橙色
         2: '#F44336',  # 紧急 - 红色
     }
-    def __init__(self, schedule, parent=None):
+    def __init__(self, schedule, parent=None, show_delete_button: bool = False):
         super().__init__(parent)
         self.schedule = schedule
+        self.show_delete_button = show_delete_button
         self.setObjectName('ScheduleCard')
         self._setup_ui()
 
@@ -50,7 +52,7 @@ class ScheduleCard(QFrame):
 
         # 第一行：标题 + 紧急标记 + 状态
         row1 = QHBoxLayout()
-        self.select_box = QCheckBox()
+        self.select_box = ModernCheckBox()
         self.select_box.setObjectName('ScheduleSelect')
         self.select_box.setToolTip('选择日程')
         self.select_box.toggled.connect(lambda checked: self.selection_changed.emit(s.id, checked))
@@ -127,6 +129,14 @@ class ScheduleCard(QFrame):
             undo_btn.setFixedHeight(28)
             undo_btn.clicked.connect(lambda: self.status_changed.emit(s.id, 'pending'))
             row3.addWidget(undo_btn)
+
+        if self.show_delete_button:
+            delete_btn = QPushButton('删除')
+            delete_btn.setObjectName('DangerButton')
+            delete_btn.setToolTip('删除这条日程')
+            delete_btn.setFixedHeight(28)
+            delete_btn.clicked.connect(lambda: self.deleted.emit(s.id))
+            row3.addWidget(delete_btn)
 
         layout.addLayout(row3)
 

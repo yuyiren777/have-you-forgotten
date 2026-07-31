@@ -1,9 +1,9 @@
 """图片拖拽上传组件"""
 import os
 import shutil
-from PyQt5.QtWidgets import QFrame, QVBoxLayout, QLabel, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import QApplication, QFrame, QVBoxLayout, QLabel, QHBoxLayout, QPushButton
 from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QPixmap, QFont
+from PyQt5.QtGui import QDragEnterEvent, QDropEvent, QImage, QPixmap, QFont
 
 from db.database import DATA_DIR
 
@@ -17,6 +17,9 @@ class ImageDropZone(QFrame):
         super().__init__(parent)
         self.setObjectName('ImageDropZone')
         self.setAcceptDrops(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setToolTip('单击此区域后可按 Ctrl+V 粘贴截图')
         self.setMinimumHeight(148)
         self.setMaximumHeight(190)
         self._images: list[str] = []
@@ -35,6 +38,7 @@ class ImageDropZone(QFrame):
         title_font.setPointSize(14)
         title_font.setBold(True)
         self.title_label.setFont(title_font)
+        self.title_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(self.title_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 图标
@@ -44,11 +48,13 @@ class ImageDropZone(QFrame):
         icon_font.setBold(True)
         self.icon_label.setFont(icon_font)
         self.icon_label.setStyleSheet('color: #2B7A78;')
+        self.icon_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(self.icon_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 提示
-        self.hint_label = QLabel('拖放图片到这里，或按 Ctrl+V 粘贴截图')
+        self.hint_label = QLabel('单击这里后按 Ctrl+V，或直接拖放图片')
         self.hint_label.setObjectName('SectionHint')
+        self.hint_label.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout.addWidget(self.hint_label, alignment=Qt.AlignmentFlag.AlignCenter)
 
         # 按钮
@@ -88,6 +94,12 @@ class ImageDropZone(QFrame):
             path = url.toLocalFile()
             if os.path.isfile(path):
                 self._add_image(path)
+        event.acceptProposedAction()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.setFocus(Qt.FocusReason.MouseFocusReason)
+        super().mousePressEvent(event)
 
     def _select_images(self):
         from PyQt5.QtWidgets import QFileDialog
@@ -113,6 +125,68 @@ class ImageDropZone(QFrame):
         self.image_added.emit(dest_path)
         self._update_preview()
 
+    def _add_pixmap(self, pixmap: QPixmap) -> str | None:
+        """Persist a clipboard bitmap once and add it to the preview."""
+        if pixmap.isNull():
+            return None
+        images_dir = os.path.join(DATA_DIR, 'images')
+        os.makedirs(images_dir, exist_ok=True)
+        import uuid
+        dest_path = os.path.join(images_dir, f'clipboard_{uuid.uuid4().hex[:10]}.png')
+        if not pixmap.save(dest_path, 'PNG'):
+            return None
+        self._images.append(dest_path)
+        self.image_added.emit(dest_path)
+        self._update_preview()
+        return dest_path
+
+    @staticmethod
+    def clipboard_has_image(clipboard=None) -> bool:
+        clipboard = clipboard or QApplication.clipboard()
+        mime = clipboard.mimeData()
+        if mime and mime.hasImage():
+            return True
+        return bool(mime and mime.hasUrls() and any(
+            url.isLocalFile() and ImageDropZone._is_image_path(url.toLocalFile())
+            for url in mime.urls()
+        ))
+
+    def paste_from_clipboard(self, clipboard=None) -> list[str]:
+        """Add image data or image-file URLs currently held by the clipboard."""
+        clipboard = clipboard or QApplication.clipboard()
+        mime = clipboard.mimeData()
+        if mime and mime.hasImage():
+            image = clipboard.image()
+            if image.isNull():
+                image_data = mime.imageData()
+                if isinstance(image_data, QPixmap):
+                    pixmap = image_data
+                elif isinstance(image_data, QImage):
+                    pixmap = QPixmap.fromImage(image_data)
+                else:
+                    pixmap = QPixmap()
+            else:
+                pixmap = QPixmap.fromImage(image)
+            saved = self._add_pixmap(pixmap)
+            return [saved] if saved else []
+
+        added = []
+        if mime and mime.hasUrls():
+            for url in mime.urls():
+                path = url.toLocalFile()
+                if url.isLocalFile() and self._is_image_path(path):
+                    before = len(self._images)
+                    self._add_image(path)
+                    if len(self._images) > before:
+                        added.append(self._images[-1])
+        return added
+
+    @staticmethod
+    def _is_image_path(path: str) -> bool:
+        return os.path.isfile(path) and os.path.splitext(path)[1].lower() in {
+            '.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp'
+        }
+
     def _update_preview(self):
         # 清除旧预览
         for i in reversed(range(self.preview_layout.count())):
@@ -135,7 +209,10 @@ class ImageDropZone(QFrame):
             self.preview_layout.addWidget(more)
 
         count = len(self._images)
-        self.hint_label.setText(f'已添加 {count} 张图片' if count else '拖放图片到这里，或按 Ctrl+V 粘贴截图')
+        self.hint_label.setText(
+            f'已添加 {count} 张图片'
+            if count else '单击这里后按 Ctrl+V，或直接拖放图片'
+        )
         self.clear_btn.setVisible(count > 0)
 
     def _clear_images(self):

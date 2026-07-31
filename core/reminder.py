@@ -11,6 +11,8 @@ logger = logging.getLogger(__name__)
 
 LOCAL_TIMEZONE = datetime.datetime.now().astimezone().tzinfo or datetime.timezone.utc
 scheduler = BackgroundScheduler(timezone=LOCAL_TIMEZONE)
+POST_START_GRACE_MINUTES = 60
+ALL_DAY_REMINDER_DEADLINE = datetime.time(22, 0)
 
 # 回调函数（由 GUI 层设置）
 on_windows_notify = None  # callable(title, message)
@@ -87,16 +89,15 @@ def _get_reminder_stages() -> list[tuple[str, str, int]]:
                 row = Config.get_or_none(Config.key == 'reminder_advance')
                 final = max(0, int(row.value)) if row is not None else 30
 
+        final = final if final and final > 0 else 30
         first = _config_minutes(Config, 'reminder_first') or 0
         second = _config_minutes(Config, 'reminder_second') or 0
-        stages = []
-        if first > 0:
-            stages.append(('first', '第一次提醒', first))
-        if second > 0:
+        stages = [('final', '最后提醒', final)]
+        if second > final:
             stages.append(('second', '第二次提醒', second))
-        if final > 0:
-            stages.append(('final', '最后提醒', final))
-        return stages
+        if first > max(final, second):
+            stages.append(('first', '第一次提醒', first))
+        return sorted(stages, key=lambda stage: stage[2], reverse=True)
     except Exception:
         return [('final', '最后提醒', 30)]
 
@@ -109,9 +110,43 @@ def _select_due_stage(diff_minutes: float, stages, sent_stages: set[str]):
     """
     candidates = [
         stage for stage in stages
-        if stage[0] not in sent_stages and 0 < diff_minutes <= stage[2]
+        if stage[0] not in sent_stages and diff_minutes <= stage[2]
     ]
     return min(candidates, key=lambda stage: stage[2]) if candidates else None
+
+
+def _skipped_stage_keys(stage, stages, handled_stages: set[str]) -> list[str]:
+    """Return earlier reminders that must never be replayed after this stage."""
+    if stage is None:
+        return []
+    selected_lead = stage[2]
+    return [
+        key for key, _label, lead in stages
+        if lead > selected_lead and key not in handled_stages
+    ]
+
+
+def _schedule_reminder_window(
+    schedule_date: datetime.date,
+    start_time: datetime.time | None,
+    end_time: datetime.time | None,
+) -> tuple[datetime.datetime, datetime.datetime]:
+    """Return the event target and the last useful instant for a local reminder."""
+    if start_time is None:
+        target = datetime.datetime.combine(schedule_date, datetime.time.min)
+        deadline = datetime.datetime.combine(schedule_date, ALL_DAY_REMINDER_DEADLINE)
+        return target, deadline
+
+    target = datetime.datetime.combine(schedule_date, start_time)
+    if end_time is None:
+        return target, target + datetime.timedelta(minutes=POST_START_GRACE_MINUTES)
+
+    deadline = datetime.datetime.combine(schedule_date, end_time)
+    if end_time < start_time:
+        deadline += datetime.timedelta(days=1)
+    elif end_time == start_time:
+        deadline = target + datetime.timedelta(minutes=POST_START_GRACE_MINUTES)
+    return target, deadline
 
 
 def _check_and_remind():
@@ -129,15 +164,14 @@ def _check_and_remind():
         if not s.date:
             continue
 
-        # Timed and all-day schedules share one advance rule. An all-day item
-        # starts at 00:00 on its date, so long lead times also work for it.
-        target = datetime.datetime.combine(s.date, s.start_time or datetime.time.min)
+        target, deadline = _schedule_reminder_window(s.date, s.start_time, s.end_time)
         diff_minutes = (target - now).total_seconds() / 60
 
-        if not s.start_time and s.date == today and now.hour >= 22:
-            # Keep the existing end-of-day expiration behavior for all-day items.
-            s.status = 'expired'
-            s.save()
+        if now >= deadline:
+            if not s.start_time and s.date == today:
+                # Keep the existing end-of-day expiration behavior for all-day items.
+                s.status = 'expired'
+                s.save()
             continue
 
         sent_stage_rows = ReminderLog.select().where(
@@ -148,6 +182,14 @@ def _check_and_remind():
         if stage is None:
             continue
         stage_key, stage_label, _ = stage
+
+        for skipped_key in _skipped_stage_keys(stage, stages, sent_stages):
+            ReminderLog.create(
+                schedule=s,
+                method=f'windows:{skipped_key}',
+                status='skipped',
+                message=f'已错过该提醒阶段，改为发送 {stage_label}',
+            )
 
         # 2. 发送提醒
         title = f'⏰ {stage_label}: {s.title}'
