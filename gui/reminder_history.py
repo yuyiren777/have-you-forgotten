@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
 
 from gui.components.schedule_card import ScheduleCard
+from gui.components.schedule_edit_dialog import open_schedule_editor
 from db.database import db
 from db.models import Schedule, ReminderLog
 
@@ -93,6 +94,7 @@ class ReminderHistoryPage(QWidget):
                 card = ScheduleCard(s, show_delete_button=True)
                 if status != 'expired':
                     card.status_changed.connect(self._on_status_change)
+                card.edit_requested.connect(self._on_edit)
                 card.deleted.connect(self._on_delete)
                 container_layout.addWidget(card)
 
@@ -101,6 +103,10 @@ class ReminderHistoryPage(QWidget):
     def _on_status_change(self, schedule_id: int, new_status: str):
         Schedule.update(status=new_status).where(Schedule.id == schedule_id).execute()
         self.refresh()
+
+    def _on_edit(self, schedule_id: int):
+        if open_schedule_editor(self, schedule_id):
+            self.refresh()
 
     def _on_delete(self, schedule_id: int):
         reply = QMessageBox.question(

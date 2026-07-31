@@ -72,6 +72,15 @@ QPushButton#ModelModeButton[active="true"] { color: #FFFFFF; background: #2F9089
 QTextEdit, QLineEdit, QComboBox, QSpinBox { color: #E5EDEC; background: #192124; border: 1px solid #4A5A5C; border-radius: 5px; padding: 7px 10px; selection-background-color: #317C77; min-height: 32px; }
 QTextEdit:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus { border: 1px solid #43A79F; }
 QLineEdit:disabled, QComboBox:disabled { color: #839594; background: #1C2325; }
+QDialog#ScheduleEditDialog { background: #171D1F; }
+#EditDialogTitle { color: #F0F5F4; font-size: 17pt; font-weight: 700; }
+#EditDialogHint { color: #AABDBC; font-size: 10pt; }
+QDateEdit, QTimeEdit {
+    color: #E5EDEC; background: #192124; border: 1px solid #4A5A5C;
+    border-radius: 5px; padding: 7px 10px; min-height: 32px;
+}
+QDateEdit:focus, QTimeEdit:focus { border: 1px solid #43A79F; }
+QDateEdit:disabled, QTimeEdit:disabled { color: #839594; background: #1C2325; }
 QComboBox { min-height: 24px; }
 QComboBox::drop-down { width: 28px; border: none; }
 QSpinBox::up-button, QSpinBox::down-button { width: 22px; border: none; }

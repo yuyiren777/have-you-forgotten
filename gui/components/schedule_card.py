@@ -116,6 +116,13 @@ class ScheduleCard(QFrame):
         row3.addStretch()
 
         # 操作按钮
+        edit_btn = QPushButton('编辑')
+        edit_btn.setObjectName('SmallButton')
+        edit_btn.setToolTip('修正日期、时间或地点')
+        edit_btn.setFixedHeight(28)
+        edit_btn.clicked.connect(lambda: self.edit_requested.emit(s.id))
+        row3.addWidget(edit_btn)
+
         if s.status == 'pending' or s.status == 'reminded':
             done_btn = QPushButton('标记完成')
             done_btn.setObjectName('SmallButton')

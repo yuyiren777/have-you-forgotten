@@ -145,6 +145,15 @@ QTextEdit:focus, QLineEdit:focus, QComboBox:focus, QSpinBox:focus {
     border: 1px solid #2B7A78;
 }
 QLineEdit:disabled, QComboBox:disabled { color: #9AA5AD; background: #F1F3F4; }
+QDialog#ScheduleEditDialog { background: #F7F9FA; }
+#EditDialogTitle { color: #18242E; font-size: 17pt; font-weight: 700; }
+#EditDialogHint { color: #667681; font-size: 10pt; }
+QDateEdit, QTimeEdit {
+    color: #26343F; background: #FFFFFF; border: 1px solid #D7DEE2;
+    border-radius: 5px; padding: 7px 10px; min-height: 32px;
+}
+QDateEdit:focus, QTimeEdit:focus { border: 1px solid #2B7A78; }
+QDateEdit:disabled, QTimeEdit:disabled { color: #9AA5AD; background: #F1F3F4; }
 QComboBox { min-height: 24px; }
 QComboBox::drop-down { width: 28px; border: none; }
 QSpinBox::up-button, QSpinBox::down-button { width: 22px; border: none; }

@@ -9,6 +9,7 @@ from PyQt5.QtGui import QFont
 
 from gui.components.schedule_card import ScheduleCard
 from gui.components.modern_checkbox import ModernCheckBox
+from gui.components.schedule_edit_dialog import open_schedule_editor
 from gui.components.toast_notification import ToastNotification
 from db.database import db
 from db.models import ReminderLog, Schedule
@@ -242,32 +243,7 @@ class ScheduleListPage(QWidget):
             return Schedule.delete().where(Schedule.id.in_(ids)).execute()
 
     def _on_edit(self, schedule_id: int):
-        s = Schedule.get_by_id(schedule_id)
-        # 简单的编辑对话框
-        from PyQt5.QtWidgets import QDialog, QFormLayout, QLineEdit, QDialogButtonBox, QDateEdit, QTimeEdit
-        dialog = QDialog(self)
-        dialog.setWindowTitle('编辑日程')
-        dialog.setMinimumWidth(400)
-        form = QFormLayout(dialog)
-
-        title_edit = QLineEdit(s.title)
-        form.addRow('标题:', title_edit)
-
-        location_edit = QLineEdit(s.location or '')
-        form.addRow('地点:', location_edit)
-
-        buttons = QDialogButtonBox(
-            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
-        )
-        buttons.accepted.connect(dialog.accept)
-        buttons.rejected.connect(dialog.reject)
-        form.addRow(buttons)
-
-        if dialog.exec_() == QDialog.Accepted:
-            s.title = title_edit.text().strip()
-            s.location = location_edit.text().strip() or None
-            s.updated_at = datetime.datetime.now()
-            s.save()
+        if open_schedule_editor(self, schedule_id):
             self.refresh()
 
     def _clear_expired(self):

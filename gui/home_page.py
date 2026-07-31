@@ -11,6 +11,7 @@ from PyQt5.QtGui import QFont, QPixmap
 from gui.components.input_card import InputCard
 from gui.components.image_drop_zone import ImageDropZone
 from gui.components.schedule_card import ScheduleCard
+from gui.components.schedule_edit_dialog import open_schedule_editor
 from gui.components.shimmer_loader import ShimmerLoader
 from gui.components.toast_notification import ToastNotification
 from db.database import db, get_db
@@ -381,6 +382,7 @@ class HomePage(QWidget):
         for s in schedules:
             card = ScheduleCard(s, show_delete_button=True)
             card.status_changed.connect(self._on_status_change)
+            card.edit_requested.connect(self._on_edit)
             card.deleted.connect(self._on_delete)
             self.schedule_container.addWidget(card)
 
@@ -390,6 +392,10 @@ class HomePage(QWidget):
             self.refresh_schedules()
         except Exception as e:
             print(f'更新状态失败: {e}')
+
+    def _on_edit(self, schedule_id: int):
+        if open_schedule_editor(self, schedule_id):
+            self.refresh_schedules()
 
     def _on_delete(self, schedule_id: int):
         reply = QMessageBox.question(

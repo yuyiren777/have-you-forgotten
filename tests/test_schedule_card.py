@@ -60,3 +60,20 @@ def test_schedule_selection_uses_high_visibility_checkbox():
     assert card.select_box.INDICATOR_SIZE >= 22
     card.deleteLater()
     app.processEvents()
+
+
+def test_schedule_card_exposes_edit_button_and_emits_schedule_id():
+    app = QApplication.instance() or QApplication([])
+    card = ScheduleCard(_schedule())
+    emitted = []
+    card.edit_requested.connect(emitted.append)
+    edit_button = next(
+        button for button in card.findChildren(QPushButton) if button.text() == "编辑"
+    )
+
+    edit_button.click()
+
+    assert edit_button.toolTip() == "修正日期、时间或地点"
+    assert emitted == [7]
+    card.deleteLater()
+    app.processEvents()
