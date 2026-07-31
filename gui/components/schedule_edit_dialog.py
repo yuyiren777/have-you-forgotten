@@ -23,14 +23,15 @@ from gui.components.modern_checkbox import ModernCheckBox
 
 
 class ScheduleEditDialog(QDialog):
-    """Edit fields that commonly need correction after AI recognition."""
+    """Create a schedule or correct fields after AI recognition."""
 
-    def __init__(self, schedule, parent=None):
+    def __init__(self, schedule=None, parent=None):
         super().__init__(parent)
         self.schedule = schedule
+        self.is_new = schedule is None
         self.setWindowFlag(Qt.WindowType.WindowContextHelpButtonHint, False)
         self.setObjectName("ScheduleEditDialog")
-        self.setWindowTitle("修正日程")
+        self.setWindowTitle("手动添加日程" if self.is_new else "修正日程")
         self.setMinimumWidth(520)
         self._setup_ui()
         self._load_schedule()
@@ -40,13 +41,18 @@ class ScheduleEditDialog(QDialog):
         layout.setContentsMargins(24, 22, 24, 20)
         layout.setSpacing(14)
 
-        title = QLabel("修正识别结果")
-        title.setObjectName("EditDialogTitle")
-        layout.addWidget(title)
-        hint = QLabel("可手动修改日期、时间和地点；未设置的项目取消勾选即可。")
-        hint.setObjectName("EditDialogHint")
-        hint.setWordWrap(True)
-        layout.addWidget(hint)
+        self.heading = QLabel("手动添加日程" if self.is_new else "修正识别结果")
+        self.heading.setObjectName("EditDialogTitle")
+        layout.addWidget(self.heading)
+        hint_text = (
+            "直接填写日程信息；不确定日期或时间时，可取消对应选项。"
+            if self.is_new
+            else "可手动修改日期、时间和地点；未设置的项目取消勾选即可。"
+        )
+        self.hint = QLabel(hint_text)
+        self.hint.setObjectName("EditDialogHint")
+        self.hint.setWordWrap(True)
+        layout.addWidget(self.hint)
 
         form = QFormLayout()
         form.setHorizontalSpacing(18)
@@ -87,7 +93,7 @@ class ScheduleEditDialog(QDialog):
             | QDialogButtonBox.StandardButton.Cancel
         )
         save_button = self.buttons.button(QDialogButtonBox.StandardButton.Save)
-        save_button.setText("保存修改")
+        save_button.setText("添加日程" if self.is_new else "保存修改")
         save_button.setObjectName("PrimaryButton")
         cancel_button = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
         cancel_button.setText("取消")
@@ -108,19 +114,19 @@ class ScheduleEditDialog(QDialog):
 
     def _load_schedule(self):
         schedule = self.schedule
-        self.title_input.setText(schedule.title or "")
-        self.location_input.setText(schedule.location or "")
+        self.title_input.setText(schedule.title or "" if schedule else "")
+        self.location_input.setText(schedule.location or "" if schedule else "")
 
-        self.date_check.setChecked(schedule.date is not None)
-        initial_date = schedule.date or datetime.date.today()
+        self.date_check.setChecked(self.is_new or schedule.date is not None)
+        initial_date = schedule.date if schedule and schedule.date else datetime.date.today()
         self.date_edit.setDate(QDate(initial_date.year, initial_date.month, initial_date.day))
 
-        self.start_check.setChecked(schedule.start_time is not None)
-        start_time = schedule.start_time or datetime.time(9, 0)
+        self.start_check.setChecked(schedule is not None and schedule.start_time is not None)
+        start_time = schedule.start_time if schedule and schedule.start_time else datetime.time(9, 0)
         self.start_time_edit.setTime(QTime(start_time.hour, start_time.minute))
 
-        self.end_check.setChecked(schedule.end_time is not None)
-        end_time = schedule.end_time or datetime.time(10, 0)
+        self.end_check.setChecked(schedule is not None and schedule.end_time is not None)
+        end_time = schedule.end_time if schedule and schedule.end_time else datetime.time(10, 0)
         self.end_time_edit.setTime(QTime(end_time.hour, end_time.minute))
         self._sync_field_states()
 
@@ -173,6 +179,18 @@ def apply_schedule_edits(schedule, changes: dict) -> bool:
     return timing_changed
 
 
+def create_schedule_from_changes(changes: dict):
+    """Persist a manually entered schedule using the same normalized fields."""
+    with db.atomic():
+        return Schedule.create(
+            title=changes["title"],
+            location=changes["location"],
+            date=changes["date"],
+            start_time=changes["start_time"],
+            end_time=changes["end_time"],
+        )
+
+
 def open_schedule_editor(parent, schedule_id: int) -> bool:
     """Open the shared editor and return whether changes were saved."""
     schedule = Schedule.get_by_id(schedule_id)
@@ -180,4 +198,13 @@ def open_schedule_editor(parent, schedule_id: int) -> bool:
     if dialog.exec_() != QDialog.Accepted:
         return False
     apply_schedule_edits(schedule, dialog.changes())
+    return True
+
+
+def open_schedule_creator(parent) -> bool:
+    """Open the manual-entry dialog and return whether a schedule was added."""
+    dialog = ScheduleEditDialog(parent=parent)
+    if dialog.exec_() != QDialog.Accepted:
+        return False
+    create_schedule_from_changes(dialog.changes())
     return True

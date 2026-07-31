@@ -38,9 +38,12 @@ QPushButton#NavButton[active="true"] { color: #FFFFFF; background: #287D78; font
 #PageSubtitle, #SectionHint, #MutedLabel, #SettingsStepHint { color: #AABDBC; font-size: 11pt; }
 #CountLabel { color: #B3C3C2; font-size: 11pt; font-weight: 600; }
 #LeftPanel { background: #171D1F; border: none; }
-#InputCard, #ScheduleCard, #SettingsCard, #ToolbarCard, #EmptyState {
+#InputCard, #ScheduleCard, #SettingsCard, #ToolbarCard, #EmptyState, #ManualAddPanel {
     background: #222B2D; border: 1px solid #3B494B; border-radius: 7px;
 }
+#ManualAddPanel { background: #1C2527; border-color: #4A5B5D; }
+#ManualAddTitle { color: #E7EFED; font-size: 12pt; font-weight: 700; }
+#LeftScroll { background: transparent; border: none; }
 #InputCard:focus, #ScheduleCard:hover { border-color: #509D97; }
 #ScheduleCard:hover { background: #263133; }
 #ImageDropZone { background: #1D2628; border: 1px dashed #597274; border-radius: 7px; }

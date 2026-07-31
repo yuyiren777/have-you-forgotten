@@ -11,7 +11,7 @@ from PyQt5.QtGui import QFont, QPixmap
 from gui.components.input_card import InputCard
 from gui.components.image_drop_zone import ImageDropZone
 from gui.components.schedule_card import ScheduleCard
-from gui.components.schedule_edit_dialog import open_schedule_editor
+from gui.components.schedule_edit_dialog import open_schedule_creator, open_schedule_editor
 from gui.components.shimmer_loader import ShimmerLoader
 from gui.components.toast_notification import ToastNotification
 from db.database import db, get_db
@@ -61,11 +61,18 @@ class HomePage(QWidget):
         main_layout.setSpacing(24)
 
         # ===== 左侧：输入区 =====
+        left_scroll = QScrollArea()
+        left_scroll.setObjectName('LeftScroll')
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        left_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        left_scroll.setFixedWidth(426)
+
         left_panel = QFrame()
         left_panel.setObjectName('LeftPanel')
-        left_panel.setFixedWidth(410)
+        left_panel.setMinimumWidth(390)
         left_layout = QVBoxLayout(left_panel)
-        left_layout.setContentsMargins(0, 0, 0, 0)
+        left_layout.setContentsMargins(0, 0, 8, 0)
         left_layout.setSpacing(12)
 
         page_title = QLabel('快速添加')
@@ -110,7 +117,29 @@ class HomePage(QWidget):
         self.loader.setVisible(False)
         left_layout.addWidget(self.loader)
 
+        # Manual entry remains available when AI recognition is unavailable.
+        manual_panel = QFrame()
+        manual_panel.setObjectName('ManualAddPanel')
+        manual_layout = QVBoxLayout(manual_panel)
+        manual_layout.setContentsMargins(16, 14, 16, 14)
+        manual_layout.setSpacing(7)
+        manual_title = QLabel('手动添加')
+        manual_title.setObjectName('ManualAddTitle')
+        manual_layout.addWidget(manual_title)
+        manual_hint = QLabel('AI 超时或识别失败时，可直接填写日期、时间和地点。')
+        manual_hint.setObjectName('SectionHint')
+        manual_hint.setWordWrap(True)
+        manual_layout.addWidget(manual_hint)
+        self.manual_add_btn = QPushButton('手动填写日程')
+        self.manual_add_btn.setObjectName('SecondaryButton')
+        self.manual_add_btn.setMinimumHeight(40)
+        self.manual_add_btn.clicked.connect(self._on_manual_add)
+        manual_layout.addWidget(self.manual_add_btn)
+        left_layout.addWidget(manual_panel)
+
         left_layout.addStretch()
+
+        left_scroll.setWidget(left_panel)
 
         # ===== 右侧：日程展示区 =====
         right_scroll = QScrollArea()
@@ -147,7 +176,7 @@ class HomePage(QWidget):
         self.right_layout.addStretch()
 
         right_scroll.setWidget(right_widget)
-        main_layout.addWidget(left_panel)
+        main_layout.addWidget(left_scroll)
         main_layout.addWidget(right_scroll, 1)
 
     def refresh_model_label(self):
@@ -312,6 +341,10 @@ class HomePage(QWidget):
         self.loader.setVisible(False)
 
         QMessageBox.warning(self, '识别失败', f'出错了：{error_msg}\n\n请检查 API Key 和网络连接')
+
+    def _on_manual_add(self):
+        if open_schedule_creator(self):
+            self.refresh_schedules()
 
     def refresh_schedules(self):
         """刷新日程卡片列表"""

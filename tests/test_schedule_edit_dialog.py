@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import QApplication
 from gui.components.schedule_edit_dialog import (
     ScheduleEditDialog,
     apply_schedule_edits,
+    create_schedule_from_changes,
 )
 
 
@@ -58,6 +59,41 @@ def test_editor_does_not_show_nonfunctional_context_help_button():
 
     dialog.deleteLater()
     app.processEvents()
+
+
+def test_manual_creator_uses_blank_fields_and_optional_time():
+    app = QApplication.instance() or QApplication([])
+    dialog = ScheduleEditDialog()
+
+    assert dialog.is_new
+    assert dialog.windowTitle() == "手动添加日程"
+    assert dialog.title_input.text() == ""
+    assert dialog.date_check.isChecked()
+    assert not dialog.start_check.isChecked()
+    assert not dialog.end_check.isEnabled()
+
+    dialog.deleteLater()
+    app.processEvents()
+
+
+def test_manual_schedule_is_saved_with_normalized_fields():
+    changes = {
+        "title": "线下开会",
+        "location": "A101",
+        "date": datetime.date(2026, 8, 2),
+        "start_time": datetime.time(10, 0),
+        "end_time": None,
+    }
+    created = Mock()
+
+    with patch("gui.components.schedule_edit_dialog.db.atomic", return_value=nullcontext()), patch(
+        "gui.components.schedule_edit_dialog.Schedule.create",
+        return_value=created,
+    ) as create:
+        result = create_schedule_from_changes(changes)
+
+    assert result is created
+    create.assert_called_once_with(**changes)
 
 
 def test_unchecking_date_clears_date_and_both_times():
