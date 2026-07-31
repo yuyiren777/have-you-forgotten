@@ -1,6 +1,6 @@
 import os
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -169,6 +169,32 @@ class SettingsPageTests(unittest.TestCase):
         self.assertEqual(len(required), 1)
         self.assertFalse(home._processing)
         home.deleteLater()
+
+    def test_home_model_label_refreshes_without_restart(self):
+        with patch("gui.home_page.get_model_name", return_value="文字 old · 图片 old"):
+            home = HomePage()
+        self.assertEqual(home.model_label.text(), "AI 模型  ·  文字 old · 图片 old")
+
+        with patch("gui.home_page.get_model_name", return_value="文字 new · 图片 vision"):
+            home.refresh_model_label()
+
+        self.assertEqual(home.model_label.text(), "AI 模型  ·  文字 new · 图片 vision")
+        self.assertEqual(home.model_label.toolTip(), "文字 new · 图片 vision")
+        home.deleteLater()
+
+    def test_switching_to_overview_refreshes_model_before_schedules(self):
+        window = Mock()
+        window.nav_buttons = []
+        window.home_page = Mock()
+        window.schedule_page = Mock()
+        window.reminder_page = Mock()
+        calls = []
+        window.home_page.refresh_model_label.side_effect = lambda: calls.append("model")
+        window.home_page.refresh_schedules.side_effect = lambda: calls.append("schedules")
+
+        MainWindow._switch_page(window, 0)
+
+        self.assertEqual(calls, ["model", "schedules"])
 
     def test_initial_window_frame_stays_inside_available_screen(self):
         window = QMainWindow()

@@ -79,10 +79,11 @@ class HomePage(QWidget):
         left_layout.addSpacing(6)
 
         # 模型状态提示
-        model_name = get_model_name()
-        model_label = QLabel(f'AI 模型  ·  {model_name}')
-        model_label.setObjectName('MutedLabel')
-        left_layout.addWidget(model_label)
+        self.model_label = QLabel()
+        self.model_label.setObjectName('MutedLabel')
+        self.model_label.setWordWrap(True)
+        left_layout.addWidget(self.model_label)
+        self.refresh_model_label()
 
         # 文字输入卡片
         self.input_card = InputCard()
@@ -148,6 +149,12 @@ class HomePage(QWidget):
         right_scroll.setWidget(right_widget)
         main_layout.addWidget(left_panel)
         main_layout.addWidget(right_scroll, 1)
+
+    def refresh_model_label(self):
+        """Show the currently saved model configuration without restarting."""
+        model_name = get_model_name()
+        self.model_label.setText(f'AI 模型  ·  {model_name}')
+        self.model_label.setToolTip(model_name)
 
     def _on_text_submit(self, text: str):
         """文字提交"""

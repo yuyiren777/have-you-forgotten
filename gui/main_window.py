@@ -153,6 +153,7 @@ class MainWindow(QMainWindow):
 
         # 刷新对应页面
         if index == 0:
+            self.home_page.refresh_model_label()
             self.home_page.refresh_schedules()
         elif index == 1:
             self.schedule_page.refresh()
