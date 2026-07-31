@@ -78,6 +78,19 @@ class SettingsPageTests(unittest.TestCase):
             Qt.ScrollBarPolicy.ScrollBarAlwaysOff,
         )
 
+    def test_zhipu_api_key_application_link_opens_the_official_portal(self):
+        self.assertIn("open.bigmodel.cn", self.page.zhipu_apply_btn.text())
+        self.assertEqual(
+            self.page.zhipu_apply_btn.toolTip(),
+            "https://open.bigmodel.cn/",
+        )
+
+        with patch("gui.settings_page.QDesktopServices.openUrl") as open_url:
+            self.page.zhipu_apply_btn.click()
+
+        opened_url = open_url.call_args.args[0]
+        self.assertEqual(opened_url.toString(), "https://open.bigmodel.cn/")
+
     def test_autostart_uses_high_visibility_checkbox(self):
         self.assertIsInstance(self.page.autostart_check, ModernCheckBox)
         self.assertGreaterEqual(self.page.autostart_check.minimumHeight(), 42)

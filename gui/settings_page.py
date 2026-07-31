@@ -1,5 +1,6 @@
 """Progressive settings wizard for model, reminder, and notification options."""
-from PyQt5.QtCore import Qt, QThread, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QUrl, pyqtSignal
+from PyQt5.QtGui import QDesktopServices
 from PyQt5.QtWidgets import (
     QComboBox,
     QButtonGroup,
@@ -43,6 +44,8 @@ class ConnectionTestThread(QThread):
 
 class SettingsPage(QWidget):
     """Four-step settings wizard that reveals one task at a time."""
+
+    ZHIPU_PORTAL_URL = "https://open.bigmodel.cn/"
 
     setup_completed = pyqtSignal()
     theme_changed = pyqtSignal(str)
@@ -218,6 +221,19 @@ class SettingsPage(QWidget):
         provider_block = self._model_field("模型服务", self.provider_combo)
         card_layout.addWidget(provider_block)
 
+        self.zhipu_apply_btn = QPushButton("申请智谱 API Key · open.bigmodel.cn")
+        self.zhipu_apply_btn.setObjectName("SecondaryButton")
+        self.zhipu_apply_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
+        )
+        self.zhipu_apply_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.zhipu_apply_btn.setToolTip(self.ZHIPU_PORTAL_URL)
+        self.zhipu_apply_btn.clicked.connect(self._open_zhipu_portal)
+        portal_row = QHBoxLayout()
+        portal_row.addWidget(self.zhipu_apply_btn)
+        portal_row.addStretch()
+        card_layout.addLayout(portal_row)
+
         self.model_mode_widget = QWidget()
         self.model_mode_widget.setMinimumHeight(44)
         mode_layout = QHBoxLayout(self.model_mode_widget)
@@ -316,6 +332,9 @@ class SettingsPage(QWidget):
         field.setMinimumHeight(42)
         layout.addWidget(field)
         return container
+
+    def _open_zhipu_portal(self):
+        QDesktopServices.openUrl(QUrl(self.ZHIPU_PORTAL_URL))
 
     def _set_model_mode(self, mode: str):
         self._model_mode = mode if mode in ("unified", "separate") else "separate"
