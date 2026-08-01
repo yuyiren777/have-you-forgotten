@@ -53,7 +53,7 @@ winget install JRSoftware.InnoSetup
 .\installer\build_release.ps1
 ```
 
-生成的 `release\AI-Memo-Installer.zip` 内含安装向导。用户解压后运行该向导即可安装应用并创建桌面快捷方式。
+生成的 `release\AI-Memo-Installer.zip` 内含安装向导。用户解压后运行该向导即可安装应用并创建桌面快捷方式。安装器启动时会检查同一 `AppId` 的既有安装：首次使用显示完整安装路径向导，已安装时显示“更新”入口并沿用原安装目录，同时保留本地日程和设置。
 
 ## 🗂 项目结构
 
