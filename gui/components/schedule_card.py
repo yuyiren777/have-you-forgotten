@@ -2,7 +2,7 @@
 from PyQt5.QtWidgets import (
     QFrame, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QMenu, QWidget
 )
-from PyQt5.QtCore import pyqtSignal, Qt
+from PyQt5.QtCore import pyqtSignal, Qt, QTimer
 from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import QAction
 
@@ -12,6 +12,8 @@ from utils.date_parser import format_remaining_time, format_schedule_time
 
 class ScheduleCard(QFrame):
     """日程展示卡片"""
+
+    RELATIVE_TIME_REFRESH_MS = 30_000
 
     status_changed = pyqtSignal(int, str)  # schedule_id, new_status
     deleted = pyqtSignal(int)  # schedule_id
@@ -27,6 +29,8 @@ class ScheduleCard(QFrame):
         super().__init__(parent)
         self.schedule = schedule
         self.show_delete_button = show_delete_button
+        self.remaining_label = None
+        self._remaining_timer = None
         self.setObjectName('ScheduleCard')
         self._setup_ui()
 
@@ -84,11 +88,16 @@ class ScheduleCard(QFrame):
         row2.addWidget(time_label)
 
         if s.status == 'pending':
-            remaining = format_remaining_time(s.date, s.start_time)
-            remaining_label = QLabel(remaining)
-            color = '#B34D4D' if '分钟' in remaining else '#71808C'
-            remaining_label.setStyleSheet(f'color: {color}; font-size: 11pt;')
-            row2.addWidget(remaining_label)
+            self.remaining_label = QLabel()
+            self.remaining_label.setObjectName('RemainingTimeLabel')
+            row2.addWidget(self.remaining_label)
+            self._refresh_remaining_time()
+
+            self._remaining_timer = QTimer(self)
+            self._remaining_timer.setTimerType(Qt.TimerType.CoarseTimer)
+            self._remaining_timer.setInterval(self.RELATIVE_TIME_REFRESH_MS)
+            self._remaining_timer.timeout.connect(self._refresh_remaining_time)
+            self._remaining_timer.start()
 
         row2.addStretch()
         layout.addLayout(row2)
@@ -146,6 +155,23 @@ class ScheduleCard(QFrame):
             row3.addWidget(delete_btn)
 
         layout.addLayout(row3)
+
+    def _refresh_remaining_time(self):
+        """Update only the relative-time text without rebuilding the card."""
+        if self.remaining_label is None:
+            return
+        remaining = format_remaining_time(
+            self.schedule.date,
+            self.schedule.start_time,
+        )
+        urgent = (
+            '分钟' in remaining
+            or remaining in {'现在', '已过期'}
+            or remaining.startswith('已开始')
+        )
+        color = '#B34D4D' if urgent else '#71808C'
+        self.remaining_label.setText(remaining)
+        self.remaining_label.setStyleSheet(f'color: {color}; font-size: 11pt;')
 
     def set_selected(self, selected: bool):
         self.select_box.blockSignals(True)

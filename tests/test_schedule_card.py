@@ -1,6 +1,7 @@
 import datetime
 import os
 from types import SimpleNamespace
+from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -75,5 +76,39 @@ def test_schedule_card_exposes_edit_button_and_emits_schedule_id():
 
     assert edit_button.toolTip() == "修正日期、时间或地点"
     assert emitted == [7]
+    card.deleteLater()
+    app.processEvents()
+
+
+def test_pending_card_refreshes_remaining_time_without_rebuilding():
+    app = QApplication.instance() or QApplication([])
+    with patch(
+        "gui.components.schedule_card.format_remaining_time",
+        side_effect=["还有2小时", "还有1小时"],
+    ):
+        card = ScheduleCard(_schedule())
+        original_label = card.remaining_label
+
+        assert original_label.text() == "还有2小时"
+        assert card._remaining_timer.isActive()
+        assert card._remaining_timer.interval() == card.RELATIVE_TIME_REFRESH_MS
+
+        card._remaining_timer.timeout.emit()
+
+    assert card.remaining_label is original_label
+    assert card.remaining_label.text() == "还有1小时"
+    card.deleteLater()
+    app.processEvents()
+
+
+def test_completed_card_does_not_start_relative_time_timer():
+    app = QApplication.instance() or QApplication([])
+    schedule = _schedule()
+    schedule.status = "completed"
+
+    card = ScheduleCard(schedule)
+
+    assert card.remaining_label is None
+    assert card._remaining_timer is None
     card.deleteLater()
     app.processEvents()
