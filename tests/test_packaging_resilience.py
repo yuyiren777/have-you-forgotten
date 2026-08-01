@@ -39,3 +39,17 @@ def test_installer_distinguishes_updates_from_first_install():
     assert "wpReady" in script
     assert "WizardForm.NextButton.Caption := '更新'" in script
     assert "现有日程、设置和提醒记录会保留" in script
+
+
+def test_installer_stops_the_tray_process_before_replacing_update_files():
+    script = (Path(__file__).parents[1] / "installer" / "AI-Memo.iss").read_text(
+        encoding="utf-8"
+    )
+
+    assert "RestartApplications=no" in script
+    assert "procedure StopRunningApplication" in script
+    assert "function PrepareToInstall(var NeedsRestart: Boolean): String" in script
+    assert "if IsUpdateInstall then" in script
+    assert "StopRunningApplication;" in script
+    assert "'/F /T /IM {#MyAppExeName}'" in script
+    assert "ewWaitUntilTerminated" in script

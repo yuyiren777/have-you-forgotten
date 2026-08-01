@@ -26,6 +26,7 @@ SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
 CloseApplicationsFilter={#MyAppExeName}
+RestartApplications=no
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -81,12 +82,29 @@ begin
     WizardForm.NextButton.Caption := SetupMessage(msgButtonNext);
 end;
 
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+procedure StopRunningApplication;
 var
   ResultCode: Integer;
 begin
+  Exec(
+    ExpandConstant('{sys}\taskkill.exe'),
+    '/F /T /IM {#MyAppExeName}',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode
+  );
+  Sleep(800);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  if IsUpdateInstall then
+    StopRunningApplication;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
   if CurUninstallStep = usUninstall then begin
-    Exec(ExpandConstant('{sys}\taskkill.exe'), '/F /IM {#MyAppExeName}', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    StopRunningApplication;
     RegDeleteValue(HKEY_CURRENT_USER, 'Software\Microsoft\Windows\CurrentVersion\Run', 'HaveYouForgotten');
   end;
 end;
