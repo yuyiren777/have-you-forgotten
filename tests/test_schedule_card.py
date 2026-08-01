@@ -74,7 +74,7 @@ def test_schedule_card_exposes_edit_button_and_emits_schedule_id():
 
     edit_button.click()
 
-    assert edit_button.toolTip() == "修正日期、时间或地点"
+    assert edit_button.toolTip() == "编辑日程内容、时间、紧急度和备注"
     assert emitted == [7]
     card.deleteLater()
     app.processEvents()

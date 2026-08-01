@@ -120,14 +120,18 @@ class ScheduleCard(QFrame):
                     desc_label.setToolTip(notes_data['description'])
                     row3.addWidget(desc_label)
             except Exception:
-                pass
+                desc = str(s.notes)
+                desc_label = QLabel(desc[:50])
+                desc_label.setStyleSheet('color: #71808C; font-size: 11pt;')
+                desc_label.setToolTip(desc)
+                row3.addWidget(desc_label)
 
         row3.addStretch()
 
         # 操作按钮
         edit_btn = QPushButton('编辑')
         edit_btn.setObjectName('SmallButton')
-        edit_btn.setToolTip('修正日期、时间或地点')
+        edit_btn.setToolTip('编辑日程内容、时间、紧急度和备注')
         edit_btn.setFixedHeight(28)
         edit_btn.clicked.connect(lambda: self.edit_requested.emit(s.id))
         row3.addWidget(edit_btn)

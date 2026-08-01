@@ -1,12 +1,14 @@
 """Schedule correction dialog shared by overview and management pages."""
 
 import datetime
+import json
 
 from PyQt5.QtCore import QDate, Qt, QTime
 from PyQt5.QtWidgets import (
     QDateEdit,
     QDialog,
     QDialogButtonBox,
+    QComboBox,
     QFormLayout,
     QHBoxLayout,
     QLabel,
@@ -47,7 +49,7 @@ class ScheduleEditDialog(QDialog):
         hint_text = (
             "直接填写日程信息；不确定日期或时间时，可取消对应选项。"
             if self.is_new
-            else "可手动修改日期、时间和地点；未设置的项目取消勾选即可。"
+            else "可修改日程内容、紧急度和备注；未设置的日期或时间取消勾选即可。"
         )
         self.hint = QLabel(hint_text)
         self.hint.setObjectName("EditDialogHint")
@@ -67,6 +69,14 @@ class ScheduleEditDialog(QDialog):
         self.location_input.setPlaceholderText("未设置地点时可留空")
         self.location_input.setMaxLength(512)
         form.addRow("地点", self.location_input)
+
+        self.urgency_input = QComboBox()
+        self.urgency_input.addItems(["普通", "重要", "紧急"])
+        form.addRow("紧急度", self.urgency_input)
+
+        self.notes_input = QLineEdit()
+        self.notes_input.setPlaceholderText("补充说明，可留空")
+        form.addRow("备注", self.notes_input)
 
         self.date_check = ModernCheckBox("设置日期")
         self.date_check.toggled.connect(self._sync_field_states)
@@ -116,6 +126,10 @@ class ScheduleEditDialog(QDialog):
         schedule = self.schedule
         self.title_input.setText(schedule.title or "" if schedule else "")
         self.location_input.setText(schedule.location or "" if schedule else "")
+        self.urgency_input.setCurrentIndex(
+            max(0, min(2, int(schedule.urgency or 0))) if schedule else 0
+        )
+        self.notes_input.setText(self._editable_notes(schedule) if schedule else "")
 
         self.date_check.setChecked(self.is_new or schedule.date is not None)
         initial_date = schedule.date if schedule and schedule.date else datetime.date.today()
@@ -129,6 +143,20 @@ class ScheduleEditDialog(QDialog):
         end_time = schedule.end_time if schedule and schedule.end_time else datetime.time(10, 0)
         self.end_time_edit.setTime(QTime(end_time.hour, end_time.minute))
         self._sync_field_states()
+
+    @staticmethod
+    def _editable_notes(schedule) -> str:
+        """Return readable notes from both legacy JSON and plain text values."""
+        raw_notes = schedule.notes or ""
+        if not raw_notes:
+            return ""
+        try:
+            parsed = json.loads(raw_notes)
+        except (TypeError, json.JSONDecodeError):
+            return str(raw_notes)
+        if isinstance(parsed, dict):
+            return str(parsed.get("notes") or parsed.get("description") or "")
+        return str(raw_notes)
 
     def _sync_field_states(self):
         has_date = self.date_check.isChecked()
@@ -146,6 +174,8 @@ class ScheduleEditDialog(QDialog):
         return {
             "title": self.title_input.text().strip(),
             "location": self.location_input.text().strip() or None,
+            "urgency": self.urgency_input.currentIndex(),
+            "notes": self.notes_input.text().strip() or None,
             "date": self.date_edit.date().toPyDate() if has_date else None,
             "start_time": self.start_time_edit.time().toPyTime() if has_start else None,
             "end_time": self.end_time_edit.time().toPyTime() if has_end else None,
@@ -168,6 +198,8 @@ def apply_schedule_edits(schedule, changes: dict) -> bool:
     with db.atomic():
         schedule.title = changes["title"]
         schedule.location = changes["location"]
+        schedule.urgency = changes.get("urgency", schedule.urgency)
+        schedule.notes = changes.get("notes", schedule.notes)
         schedule.date, schedule.start_time, schedule.end_time = new_timing
         schedule.updated_at = datetime.datetime.now()
         if timing_changed:
@@ -185,6 +217,8 @@ def create_schedule_from_changes(changes: dict):
         return Schedule.create(
             title=changes["title"],
             location=changes["location"],
+            urgency=changes.get("urgency", 0),
+            notes=changes.get("notes"),
             date=changes["date"],
             start_time=changes["start_time"],
             end_time=changes["end_time"],
