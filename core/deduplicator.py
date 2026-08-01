@@ -23,25 +23,12 @@ def find_duplicate(schedule_data: dict) -> Schedule | None:
     if not title or not date:
         return None
 
-    # 查询同一天、同标题的日程
-    candidates = Schedule.select().where(
+    # Nullable equality becomes IS NULL when no start time was supplied.
+    return Schedule.get_or_none(
         (Schedule.title == title) &
-        (Schedule.date == date)
+        (Schedule.date == date) &
+        (Schedule.start_time == start_time)
     )
-
-    for existing in candidates:
-        # 都没有具体时间 → 视为重复
-        if not start_time and not existing.start_time:
-            return existing
-
-        # 都有具体时间时，只有完全相同才视为重复。
-        if start_time and existing.start_time:
-            if start_time == existing.start_time:
-                return existing
-
-        # 一个有时间、一个没有时间，保留为两条独立日程。
-
-    return None
 
 
 def merge_schedule(existing: Schedule, new_data: dict):

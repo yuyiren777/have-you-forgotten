@@ -49,6 +49,7 @@ class WorkflowState(TypedDict, total=False):
     progress: Callable[[str], None] | None
     date_context: DateContext
     raw_responses: list[str]
+    image_data_urls: dict[str, str]
     items: list[dict]
     schedules: list[dict]
 
@@ -176,7 +177,12 @@ def _image_data_url(image_path: str) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
-def _image_messages(state: WorkflowState, path: str, fallback: bool = False) -> list[dict]:
+def _image_messages(
+    state: WorkflowState,
+    path: str,
+    fallback: bool = False,
+    data_url: str | None = None,
+) -> list[dict]:
     date_context = state["date_context"]
     system_text = _SYSTEM_PROMPT.format(
         current_datetime=date_context.to_prompt_text(),
@@ -191,7 +197,7 @@ def _image_messages(state: WorkflowState, path: str, fallback: bool = False) -> 
             "role": "user",
             "content": [
                 {"type": "text", "text": instruction},
-                {"type": "image_url", "image_url": {"url": _image_data_url(path)}},
+                {"type": "image_url", "image_url": {"url": data_url or _image_data_url(path)}},
             ],
         },
     ]
@@ -201,10 +207,17 @@ def _extract_images(state: WorkflowState) -> dict:
     paths = state["source_data"]
     paths = paths if isinstance(paths, list) else [paths]
     responses = []
+    image_data_urls = {}
     for index, path in enumerate(paths, start=1):
         _emit(state, f"正在识别图片 ({index}/{len(paths)})...")
-        responses.append(_call_with_retry(_image_messages(state, path), state, "image"))
-    return {"raw_responses": responses}
+        data_url = _image_data_url(path)
+        image_data_urls[str(path)] = data_url
+        responses.append(
+            _call_with_retry(
+                _image_messages(state, path, data_url=data_url), state, "image"
+            )
+        )
+    return {"raw_responses": responses, "image_data_urls": image_data_urls}
 
 
 def _legacy_json_items(response: str) -> list[dict]:
@@ -276,9 +289,19 @@ def _parse_responses(state: WorkflowState) -> dict:
     else:
         paths = state["source_data"]
         paths = paths if isinstance(paths, list) else [paths]
+        image_data_urls = state.get("image_data_urls", {})
         for path in paths:
             retry_responses.append(
-                _call_with_retry(_image_messages(state, path, fallback=True), state, "image")
+                _call_with_retry(
+                    _image_messages(
+                        state,
+                        path,
+                        fallback=True,
+                        data_url=image_data_urls.get(str(path)),
+                    ),
+                    state,
+                    "image",
+                )
             )
 
     for response in retry_responses:

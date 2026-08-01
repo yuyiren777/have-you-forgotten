@@ -13,55 +13,82 @@ PROVIDER_NAMES = {
 
 TEXT_MODEL = 'glm-4.7-flash'
 VISION_MODEL = 'glm-4.6v-flash'
+SENSITIVE_CONFIG_KEYS = frozenset({
+    'model_api_key',
+    'wechat_token',
+    'wechat_app_token',
+    'email_address',
+    'email_password',
+})
+
+
+def _get_configs(defaults: dict[str, str]) -> dict[str, str]:
+    """Read a group of configuration values with one database query."""
+    values = dict(defaults)
+    if not defaults:
+        return values
+    try:
+        get_db()
+        rows = Config.select().where(Config.key.in_(tuple(defaults)))
+        for row in rows:
+            try:
+                value = decrypt(row.value) if row.key in SENSITIVE_CONFIG_KEYS else row.value
+            except Exception:
+                continue
+            values[row.key] = value
+    except Exception:
+        pass
+    return values
 
 
 def _get_config(key: str, default: str = '') -> str:
     """从数据库获取配置"""
-    try:
-        db = get_db()
-        row = Config.get_or_none(Config.key == key)
-        if row:
-            val = row.value
-            # 敏感字段解密
-            if key in ('model_api_key', 'wechat_token', 'email_address', 'email_password'):
-                val = decrypt(val)
-            return val
-    except Exception:
-        pass
-    return default
+    return _get_configs({key: default})[key]
 
 
 def get_provider_config() -> dict:
     """获取当前模型配置"""
-    provider = _get_config('model_provider', 'zhipu')
+    values = _get_configs({
+        'model_provider': 'zhipu',
+        'model_name': '',
+        'model_mode': '',
+        'model_api_key': '',
+        'model_api_base': '',
+        'unified_model_name': '',
+        'text_model_name': '',
+        'image_model_name': '',
+    })
+    provider = values['model_provider']
     if provider != 'zhipu':
         provider = 'zhipu'
-    legacy_model = _get_config('model_name', '')
-    mode = _get_config('model_mode', '')
+    legacy_model = values['model_name']
+    mode = values['model_mode']
     if mode not in ('unified', 'separate'):
         mode = 'unified' if legacy_model else 'separate'
     return {
         'provider': provider,
-        'api_key': _get_config('model_api_key', ''),
-        'api_base': _get_config('model_api_base', ''),
+        'api_key': values['model_api_key'],
+        'api_base': values['model_api_base'],
         'model_mode': mode,
-        'unified_model': _get_config('unified_model_name', '') or legacy_model,
-        'text_model': _get_config('text_model_name', ''),
-        'image_model': _get_config('image_model_name', ''),
+        'unified_model': values['unified_model_name'] or legacy_model,
+        'text_model': values['text_model_name'],
+        'image_model': values['image_model_name'],
     }
 
 
 def get_push_config() -> dict:
     """获取推送配置"""
-    return {
-        'wechat_service': _get_config('wechat_service', 'none'),
-        'wechat_token': _get_config('wechat_token', ''),
-        'email_service': _get_config('email_service', 'none'),
-        'email_address': _get_config('email_address', ''),
-        'email_password': _get_config('email_password', ''),
-        'email_smtp_host': _get_config('email_smtp_host', ''),
-        'email_smtp_port': _get_config('email_smtp_port', ''),
-    }
+    values = _get_configs({
+        'wechat_service': 'none',
+        'wechat_token': '',
+        'wechat_app_token': '',
+        'email_service': 'none',
+        'email_address': '',
+        'email_password': '',
+        'email_smtp_host': '',
+        'email_smtp_port': '',
+    })
+    return values
 
 
 def get_model_name() -> str:
@@ -77,8 +104,8 @@ def get_model_name() -> str:
 
 def is_setup_complete() -> bool:
     """Return whether the user finished onboarding with a usable model key."""
-    completed = _get_config('setup_completed', '0') == '1'
-    return completed and bool(_get_config('model_api_key', '').strip())
+    values = _get_configs({'setup_completed': '0', 'model_api_key': ''})
+    return values['setup_completed'] == '1' and bool(values['model_api_key'].strip())
 
 
 def call_model(

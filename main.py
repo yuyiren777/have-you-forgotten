@@ -27,8 +27,10 @@ class StartupWorker(QThread):
 
     def run(self):
         try:
+            from core.frameworks import verify_ai_frameworks
             from gui.main_window import MainWindow
 
+            verify_ai_frameworks()
             init_db()
             self.window_type = MainWindow
             self.ready.emit()
@@ -37,6 +39,15 @@ class StartupWorker(QThread):
 
 
 def main():
+    if '--verify-runtime' in sys.argv:
+        from core.frameworks import verify_ai_frameworks
+        from core.workflow import schedule_workflow
+
+        verify_ai_frameworks()
+        if schedule_workflow is None:
+            raise RuntimeError('LangGraph workflow compilation failed.')
+        return
+
     # 初始化数据库
 
     # Follow the Windows display scale instead of rendering CSS pixels too small.

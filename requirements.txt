@@ -7,8 +7,9 @@ peewee>=3.17
 # HTTP Requests
 httpx>=0.27
 openai>=1.30
-langchain-core>=0.3
-langgraph>=0.2
+langchain>=1.0,<2.0
+langchain-core>=1.0,<2.0
+langgraph>=1.0,<2.0
 
 # Task Scheduling
 APScheduler>=3.10

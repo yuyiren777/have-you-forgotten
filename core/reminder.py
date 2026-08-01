@@ -19,9 +19,9 @@ on_windows_notify = None  # callable(title, message)
 on_alert_tray = None      # callable()
 
 
-def _send_wechat(title: str, content: str) -> bool:
+def _send_wechat(title: str, content: str, config: dict | None = None) -> bool:
     """发送微信推送"""
-    config = get_push_config()
+    config = config or get_push_config()
     service = config.get('wechat_service', 'none')
 
     if service == 'serverchan':
@@ -38,9 +38,9 @@ def _send_wechat(title: str, content: str) -> bool:
     return False
 
 
-def _send_email(subject: str, html_content: str) -> bool:
+def _send_email(subject: str, html_content: str, config: dict | None = None) -> bool:
     """发送邮件"""
-    config = get_push_config()
+    config = config or get_push_config()
     service = config.get('email_service', 'none')
     if service == 'none':
         return False
@@ -58,40 +58,51 @@ def _send_email(subject: str, html_content: str) -> bool:
     )[0]
 
 
-def _config_minutes(config, prefix: str) -> int | None:
+def _config_minutes(values: dict[str, str], prefix: str) -> int | None:
     """Read a day/hour/minute triplet, returning None when it was never saved."""
-    values = []
+    parts = []
     found = False
     for unit in ('days', 'hours', 'minutes'):
-        row = config.get_or_none(config.key == f'{prefix}_{unit}')
-        if row is not None:
+        key = f'{prefix}_{unit}'
+        if key in values:
             found = True
             try:
-                values.append(max(0, int(row.value)))
+                parts.append(max(0, int(values[key])))
             except (TypeError, ValueError):
-                values.append(0)
+                parts.append(0)
         else:
-            values.append(0)
+            parts.append(0)
     if not found:
         return None
-    return values[0] * 24 * 60 + values[1] * 60 + values[2]
+    return parts[0] * 24 * 60 + parts[1] * 60 + parts[2]
 
 
 def _get_reminder_stages() -> list[tuple[str, str, int]]:
     """Return enabled reminder stages in chronological order."""
     from db.models import Config
     try:
-        final = _config_minutes(Config, 'reminder_final')
+        prefixes = ('reminder_final', 'reminder_first', 'reminder_second', 'reminder_advance')
+        keys = {
+            f'{prefix}_{unit}'
+            for prefix in prefixes
+            for unit in ('days', 'hours', 'minutes')
+        }
+        keys.add('reminder_advance')
+        values = {
+            row.key: row.value
+            for row in Config.select().where(Config.key.in_(tuple(keys)))
+        }
+        final = _config_minutes(values, 'reminder_final')
         if final is None:
             # Migrate the previous single-stage configuration at read time.
-            final = _config_minutes(Config, 'reminder_advance')
+            final = _config_minutes(values, 'reminder_advance')
             if final is None:
-                row = Config.get_or_none(Config.key == 'reminder_advance')
-                final = max(0, int(row.value)) if row is not None else 30
+                legacy_value = values.get('reminder_advance')
+                final = max(0, int(legacy_value)) if legacy_value is not None else 30
 
         final = final if final and final > 0 else 30
-        first = _config_minutes(Config, 'reminder_first') or 0
-        second = _config_minutes(Config, 'reminder_second') or 0
+        first = _config_minutes(values, 'reminder_first') or 0
+        second = _config_minutes(values, 'reminder_second') or 0
         stages = [('final', '最后提醒', final)]
         if second > final:
             stages.append(('second', '第二次提醒', second))
@@ -156,9 +167,27 @@ def _check_and_remind():
     stages = _get_reminder_stages()
 
     # 1. 查找需要提醒的日程
-    pending_schedules = Schedule.select().where(
+    pending_schedules = list(Schedule.select().where(
         Schedule.status == 'pending'
-    ).order_by(Schedule.date.asc(), Schedule.start_time.asc())
+    ).order_by(Schedule.date.asc(), Schedule.start_time.asc()))
+
+    sent_stages_by_schedule: dict[int, set[str]] = {
+        schedule.id: set() for schedule in pending_schedules
+    }
+    schedule_ids = tuple(sent_stages_by_schedule)
+    if schedule_ids:
+        sent_stage_rows = ReminderLog.select(
+            ReminderLog.schedule, ReminderLog.method
+        ).where(
+            (ReminderLog.schedule.in_(schedule_ids))
+            & ReminderLog.method.startswith('windows:')
+        )
+        for row in sent_stage_rows:
+            sent_stages_by_schedule.setdefault(row.schedule_id, set()).add(
+                row.method.split(':', 1)[1]
+            )
+
+    push_config = None
 
     for s in pending_schedules:
         if not s.date:
@@ -174,10 +203,7 @@ def _check_and_remind():
                 s.save()
             continue
 
-        sent_stage_rows = ReminderLog.select().where(
-            (ReminderLog.schedule == s) & ReminderLog.method.startswith('windows:')
-        )
-        sent_stages = {row.method.split(':', 1)[1] for row in sent_stage_rows}
+        sent_stages = sent_stages_by_schedule.get(s.id, set())
         stage = _select_due_stage(diff_minutes, stages, sent_stages)
         if stage is None:
             continue
@@ -216,8 +242,12 @@ def _check_and_remind():
             except Exception as e:
                 logger.warning(f'Windows 通知失败: {e}')
 
+        # One scan uses one configuration snapshot for all external channels.
+        if push_config is None:
+            push_config = get_push_config()
+
         # 微信推送
-        wechat_ok = _send_wechat(title, content)
+        wechat_ok = _send_wechat(title, content, push_config)
         ReminderLog.create(
             schedule=s,
             method=f'wechat:{stage_key}',
@@ -234,7 +264,7 @@ def _check_and_remind():
             notes=s.notes or '',
             remaining=remaining,
         )
-        email_ok = _send_email(f'⏰ {stage_label} — {s.title}', email_html)
+        email_ok = _send_email(f'⏰ {stage_label} — {s.title}', email_html, push_config)
         ReminderLog.create(
             schedule=s,
             method=f'email:{stage_key}',
@@ -273,9 +303,9 @@ def _check_and_remind():
 
 def _remind_undated_on_start():
     """Show each undated pending item once when this app session starts."""
-    undated_schedules = Schedule.select().where(
+    undated_schedules = list(Schedule.select().where(
         (Schedule.status == 'pending') & Schedule.date.is_null(True)
-    )
+    ))
 
     for schedule in undated_schedules:
         title = f'未设日期待办: {schedule.title}'

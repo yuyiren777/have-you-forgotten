@@ -1,8 +1,21 @@
 """智谱 AI OpenAI-compatible provider."""
+from functools import lru_cache
+
 from openai import OpenAI
 
 DEFAULT_BASE_URL = 'https://open.bigmodel.cn/api/paas/v4/'
 DEFAULT_MODEL = 'glm-4.7-flash'
+
+
+@lru_cache(maxsize=4)
+def _get_client(api_key: str, base_url: str) -> OpenAI:
+    """Reuse HTTP connection pools between model calls."""
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        max_retries=0,
+        timeout=30.0,
+    )
 
 
 def call(
@@ -26,12 +39,7 @@ def call(
     Returns:
         模型回复文本
     """
-    client = OpenAI(
-        api_key=api_key,
-        base_url=base_url or DEFAULT_BASE_URL,
-        max_retries=0,
-        timeout=30.0,
-    )
+    client = _get_client(api_key, base_url or DEFAULT_BASE_URL)
     response = client.chat.completions.create(
         model=model or DEFAULT_MODEL,
         messages=messages,

@@ -112,6 +112,18 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(schedules[0]["title"], "理发")
         self.assertIsNone(schedules[0]["date"])
 
+    @patch("core.workflow._image_data_url")
+    @patch("core.workflow.call_model")
+    def test_image_fallback_reuses_the_encoded_file(self, call_model, image_data_url):
+        call_model.side_effect = ['{"schedules": []}', '{"schedules": []}']
+        image_data_url.return_value = "data:image/png;base64,cached"
+
+        schedules = process_input("image", "memo.png")
+
+        self.assertEqual(call_model.call_count, 2)
+        image_data_url.assert_called_once_with("memo.png")
+        self.assertEqual(schedules[0]["title"], "待整理的图片备忘")
+
     @patch("core.workflow.time.sleep")
     @patch("core.workflow.call_model")
     def test_rate_limit_is_retried_without_immediate_failure(self, call_model, sleep):

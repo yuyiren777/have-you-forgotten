@@ -43,6 +43,8 @@ DB_PATH = os.path.join(DATA_DIR, 'app.db')
 db = SqliteDatabase(DB_PATH, pragmas={
     'journal_mode': 'wal',
     'foreign_keys': 1,
+    'busy_timeout': 5000,
+    'synchronous': 1,
 })
 
 

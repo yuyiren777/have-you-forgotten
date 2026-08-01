@@ -11,7 +11,7 @@ def test_nearby_times_are_not_merged(schedule_model):
         date=datetime.date(2026, 7, 27),
         start_time=datetime.time(9, 0),
     )
-    schedule_model.select.return_value.where.return_value = [existing]
+    schedule_model.get_or_none.return_value = None
 
     result = find_duplicate(
         {
@@ -31,7 +31,7 @@ def test_identical_times_are_merged(schedule_model):
         date=datetime.date(2026, 7, 27),
         start_time=datetime.time(9, 0),
     )
-    schedule_model.select.return_value.where.return_value = [existing]
+    schedule_model.get_or_none.return_value = existing
 
     result = find_duplicate(
         {
