@@ -218,7 +218,7 @@ class SettingsPage(QWidget):
         self.provider_combo = QComboBox()
         self.provider_combo.addItem("zhipu - 智谱（文字 GLM-4.7-Flash / 图片 GLM-4.6V-Flash）")
         self.provider_combo.setEnabled(False)
-        provider_block = self._model_field("模型服务", self.provider_combo)
+        provider_block = self._model_field("默认模型服务", self.provider_combo)
         card_layout.addWidget(provider_block)
 
         self.zhipu_apply_btn = QPushButton("申请智谱 API Key · open.bigmodel.cn")
@@ -268,7 +268,7 @@ class SettingsPage(QWidget):
         self.api_key_input.setPlaceholderText("必填：输入 API Key")
 
         self.api_base_input = QLineEdit()
-        self.api_base_input.setPlaceholderText("选填：留空使用默认地址")
+        self.api_base_input.setPlaceholderText("选填：留空使用默认智谱官方地址")
 
         credentials_row = QHBoxLayout()
         credentials_row.setSpacing(12)

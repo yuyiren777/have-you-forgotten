@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtWidgets import QApplication, QMainWindow
+from PyQt5.QtWidgets import QApplication, QLabel, QMainWindow
 from PyQt5.QtTest import QSignalSpy
 
 from gui.settings_page import SettingsPage
@@ -90,6 +90,15 @@ class SettingsPageTests(unittest.TestCase):
 
         opened_url = open_url.call_args.args[0]
         self.assertEqual(opened_url.toString(), "https://open.bigmodel.cn/")
+
+    def test_default_provider_and_official_api_address_are_explicit(self):
+        labels = {label.text() for label in self.page.findChildren(QLabel)}
+
+        self.assertIn("默认模型服务", labels)
+        self.assertEqual(
+            self.page.api_base_input.placeholderText(),
+            "选填：留空使用默认智谱官方地址",
+        )
 
     def test_autostart_uses_high_visibility_checkbox(self):
         self.assertIsInstance(self.page.autostart_check, ModernCheckBox)
