@@ -1,8 +1,9 @@
 """所有日程列表页 — 搜索、筛选、管理"""
 import datetime
+from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
-    QLineEdit, QComboBox, QPushButton, QMessageBox, QFrame
+    QLineEdit, QComboBox, QPushButton, QMessageBox, QFrame, QFileDialog, QStyle
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QFont
@@ -13,6 +14,7 @@ from gui.components.schedule_edit_dialog import open_schedule_editor
 from gui.components.toast_notification import ToastNotification
 from db.database import db
 from db.models import ReminderLog, Schedule
+from core.exporter import export_schedules
 
 
 class ScheduleListPage(QWidget):
@@ -71,6 +73,14 @@ class ScheduleListPage(QWidget):
         self.count_label.setObjectName('CountLabel')
         batch_layout.addWidget(self.count_label)
         batch_layout.addStretch()
+
+        self.export_btn = QPushButton('导出日程')
+        self.export_btn.setObjectName('SecondaryButton')
+        self.export_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
+        self.export_btn.setToolTip('有勾选时导出勾选日程，否则导出当前筛选结果')
+        self.export_btn.setEnabled(False)
+        self.export_btn.clicked.connect(self._export_schedules)
+        batch_layout.addWidget(self.export_btn)
 
         self.select_all_box = ModernCheckBox('全选当前列表')
         self.select_all_box.toggled.connect(self._set_all_selected)
@@ -200,6 +210,7 @@ class ScheduleListPage(QWidget):
             bool(self._visible_schedule_ids) and selected_count == len(self._visible_schedule_ids)
         )
         self.select_all_box.blockSignals(False)
+        self.export_btn.setEnabled(bool(self._visible_schedule_ids))
 
     def _set_all_selected(self, selected: bool):
         if selected:
@@ -245,6 +256,45 @@ class ScheduleListPage(QWidget):
     def _on_edit(self, schedule_id: int):
         if open_schedule_editor(self, schedule_id):
             self.refresh()
+
+    def _export_schedules(self):
+        schedule_ids = sorted(self._selected_schedule_ids) or self._visible_schedule_ids
+        if not schedule_ids:
+            return
+
+        default_name = f'日程导出-{datetime.date.today():%Y%m%d}.ics'
+        file_path, selected_filter = QFileDialog.getSaveFileName(
+            self,
+            '导出日程',
+            default_name,
+            'iCalendar 日历文件 (*.ics);;CSV 表格文件 (*.csv)',
+        )
+        if not file_path:
+            return
+
+        export_format = 'csv' if 'CSV' in selected_filter or file_path.lower().endswith('.csv') else 'ics'
+        extension = f'.{export_format}'
+        current_suffix = Path(file_path).suffix.lower()
+        if current_suffix in {'.ics', '.csv'} and current_suffix != extension:
+            file_path = str(Path(file_path).with_suffix(extension))
+        elif not file_path.lower().endswith(extension):
+            file_path += extension
+
+        try:
+            schedules = list(
+                Schedule.select()
+                .where(Schedule.id.in_(schedule_ids))
+                .order_by(Schedule.date.asc(), Schedule.start_time.asc())
+            )
+            export_schedules(schedules, file_path, export_format)
+            scope = '所选' if self._selected_schedule_ids else '当前列表中的'
+            ToastNotification.show_notification(
+                '导出完成',
+                f'已将{scope} {len(schedules)} 条日程导出到：\n{file_path}',
+                self,
+            )
+        except Exception as error:
+            QMessageBox.critical(self, '导出失败', f'无法导出日程：{error}')
 
     def _clear_expired(self):
         reply = QMessageBox.question(
