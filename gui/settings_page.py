@@ -63,6 +63,7 @@ class SettingsPage(QWidget):
         self.setObjectName("SettingsPage")
         self._current_step = 0
         self._step_indicators = []
+        self._stored_model_api_base = ""
         self._setup_ui()
         self._load_config()
         self._show_step(0)
@@ -267,16 +268,10 @@ class SettingsPage(QWidget):
         self.api_key_input.setEchoMode(QLineEdit.EchoMode.Password)
         self.api_key_input.setPlaceholderText("必填：输入 API Key")
 
-        self.api_base_input = QLineEdit()
-        self.api_base_input.setPlaceholderText("选填：留空使用默认智谱官方地址")
-
         credentials_row = QHBoxLayout()
         credentials_row.setSpacing(12)
         credentials_row.addWidget(
             self._model_field("API Key（必填）", self.api_key_input), 1
-        )
-        credentials_row.addWidget(
-            self._model_field("API 地址（选填）", self.api_base_input), 1
         )
         card_layout.addLayout(credentials_row)
 
@@ -631,7 +626,7 @@ class SettingsPage(QWidget):
         )
         self.theme_combo.blockSignals(False)
         self.api_key_input.setText(configs["model_api_key"])
-        self.api_base_input.setText(configs["model_api_base"])
+        self._stored_model_api_base = configs["model_api_base"]
         saved_mode = configs["model_mode"]
         if saved_mode not in ("unified", "separate"):
             saved_mode = "unified" if configs["model_name"] else "separate"
@@ -690,7 +685,9 @@ class SettingsPage(QWidget):
         return {
             "model_provider": self.provider_combo.currentText().split(" - ")[0],
             "model_api_key": encrypt(self.api_key_input.text().strip()),
-            "model_api_base": self.api_base_input.text().strip(),
+            # The UI is fixed to Zhipu, but preserve this backend key for
+            # existing installations and the official default-address logic.
+            "model_api_base": self._stored_model_api_base,
             "model_mode": self._model_mode,
             "unified_model_name": unified_model,
             "text_model_name": self.text_model_input.text().strip(),

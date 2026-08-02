@@ -91,13 +91,19 @@ class SettingsPageTests(unittest.TestCase):
         opened_url = open_url.call_args.args[0]
         self.assertEqual(opened_url.toString(), "https://open.bigmodel.cn/")
 
-    def test_default_provider_and_official_api_address_are_explicit(self):
+    def test_fixed_provider_hides_api_address_field(self):
         labels = {label.text() for label in self.page.findChildren(QLabel)}
 
         self.assertIn("默认模型服务", labels)
+        self.assertNotIn("API 地址（选填）", labels)
+        self.assertFalse(hasattr(self.page, "api_base_input"))
+
+    def test_hidden_api_address_configuration_is_preserved(self):
+        self.page._stored_model_api_base = "https://existing.example/v4/"
+
         self.assertEqual(
-            self.page.api_base_input.placeholderText(),
-            "选填：留空使用默认智谱官方地址",
+            self.page._config_data()["model_api_base"],
+            "https://existing.example/v4/",
         )
 
     def test_autostart_uses_high_visibility_checkbox(self):
