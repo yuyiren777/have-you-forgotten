@@ -80,6 +80,9 @@ class ScheduleListPage(QWidget):
         self.export_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         self.export_btn.setToolTip('有勾选时导出勾选日程，否则导出当前筛选结果')
         self.export_btn.setEnabled(False)
+        # Qt's menu indicator can overlap the last character at high DPI unless
+        # the button reserves more room than its default size hint.
+        self.export_btn.setMinimumWidth(176)
         export_menu = QMenu(self.export_btn)
         excel_action = export_menu.addAction('Excel 表格（推荐，适合查看和整理）')
         html_action = export_menu.addAction('网页清单（可直接打开或打印）')

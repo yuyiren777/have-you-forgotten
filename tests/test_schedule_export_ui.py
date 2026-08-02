@@ -16,6 +16,7 @@ def test_export_menu_uses_familiar_user_facing_formats():
     actions = [action.text() for action in page.export_btn.menu().actions()]
 
     assert page.export_btn.text() == "导出日程"
+    assert page.export_btn.minimumWidth() >= 176
     assert actions == [
         "Excel 表格（推荐，适合查看和整理）",
         "网页清单（可直接打开或打印）",
