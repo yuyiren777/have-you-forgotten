@@ -3,10 +3,11 @@ import datetime
 from pathlib import Path
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QScrollArea, QLabel,
-    QLineEdit, QComboBox, QPushButton, QMessageBox, QFrame, QFileDialog, QStyle
+    QLineEdit, QComboBox, QPushButton, QMessageBox, QFrame, QFileDialog, QStyle,
+    QMenu
 )
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
+from PyQt5.QtCore import Qt, QUrl
+from PyQt5.QtGui import QDesktopServices, QFont
 
 from gui.components.schedule_card import ScheduleCard
 from gui.components.modern_checkbox import ModernCheckBox
@@ -79,7 +80,12 @@ class ScheduleListPage(QWidget):
         self.export_btn.setIcon(self.style().standardIcon(QStyle.SP_DialogSaveButton))
         self.export_btn.setToolTip('有勾选时导出勾选日程，否则导出当前筛选结果')
         self.export_btn.setEnabled(False)
-        self.export_btn.clicked.connect(self._export_schedules)
+        export_menu = QMenu(self.export_btn)
+        excel_action = export_menu.addAction('Excel 表格（推荐，适合查看和整理）')
+        html_action = export_menu.addAction('网页清单（可直接打开或打印）')
+        excel_action.triggered.connect(lambda: self._export_schedules('xlsx'))
+        html_action.triggered.connect(lambda: self._export_schedules('html'))
+        self.export_btn.setMenu(export_menu)
         batch_layout.addWidget(self.export_btn)
 
         self.select_all_box = ModernCheckBox('全选当前列表')
@@ -257,25 +263,29 @@ class ScheduleListPage(QWidget):
         if open_schedule_editor(self, schedule_id):
             self.refresh()
 
-    def _export_schedules(self):
+    def _export_schedules(self, export_format: str):
         schedule_ids = sorted(self._selected_schedule_ids) or self._visible_schedule_ids
         if not schedule_ids:
             return
 
-        default_name = f'日程导出-{datetime.date.today():%Y%m%d}.ics'
-        file_path, selected_filter = QFileDialog.getSaveFileName(
+        if export_format == 'xlsx':
+            default_name = f'日程清单-{datetime.date.today():%Y%m%d}.xlsx'
+            file_filter = 'Excel 表格 (*.xlsx)'
+        else:
+            default_name = f'日程清单-{datetime.date.today():%Y%m%d}.html'
+            file_filter = '网页清单 (*.html)'
+        file_path, _selected_filter = QFileDialog.getSaveFileName(
             self,
             '导出日程',
             default_name,
-            'iCalendar 日历文件 (*.ics);;CSV 表格文件 (*.csv)',
+            file_filter,
         )
         if not file_path:
             return
 
-        export_format = 'csv' if 'CSV' in selected_filter or file_path.lower().endswith('.csv') else 'ics'
         extension = f'.{export_format}'
         current_suffix = Path(file_path).suffix.lower()
-        if current_suffix in {'.ics', '.csv'} and current_suffix != extension:
+        if current_suffix in {'.xlsx', '.html'} and current_suffix != extension:
             file_path = str(Path(file_path).with_suffix(extension))
         elif not file_path.lower().endswith(extension):
             file_path += extension
@@ -288,11 +298,14 @@ class ScheduleListPage(QWidget):
             )
             export_schedules(schedules, file_path, export_format)
             scope = '所选' if self._selected_schedule_ids else '当前列表中的'
-            ToastNotification.show_notification(
-                '导出完成',
-                f'已将{scope} {len(schedules)} 条日程导出到：\n{file_path}',
+            open_now = QMessageBox.question(
                 self,
+                '导出完成',
+                f'已将{scope} {len(schedules)} 条日程导出到：\n{file_path}\n\n是否立即打开？',
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             )
+            if open_now == QMessageBox.StandardButton.Yes:
+                QDesktopServices.openUrl(QUrl.fromLocalFile(file_path))
         except Exception as error:
             QMessageBox.critical(self, '导出失败', f'无法导出日程：{error}')
 
