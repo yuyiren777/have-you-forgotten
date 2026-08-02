@@ -57,7 +57,7 @@ def test_all_day_schedule_remains_remindable_until_10pm():
         datetime.date(2026, 7, 28), None, None
     )
 
-    assert target == datetime.datetime(2026, 7, 28, 0, 0)
+    assert target == datetime.datetime(2026, 7, 28, 12, 0)
     assert deadline == datetime.datetime(2026, 7, 28, 22, 0)
 
 

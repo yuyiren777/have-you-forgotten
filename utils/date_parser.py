@@ -205,6 +205,9 @@ def parse_chinese_datetime(text: str) -> tuple[datetime.date | None, datetime.ti
     return date, time
 
 
+DEFAULT_DATE_ONLY_TIME = datetime.time(12, 0)
+
+
 def format_remaining_time(
     schedule_date: datetime.date | None,
     schedule_time: datetime.time = None,
@@ -217,13 +220,10 @@ def format_remaining_time(
     now = now or get_date_context().now
     now = now.replace(tzinfo=None)
 
-    if schedule_time is None and schedule_date == now.date():
-        return '今天'
-
     if schedule_time:
         target = datetime.datetime.combine(schedule_date, schedule_time)
     else:
-        target = datetime.datetime.combine(schedule_date, datetime.time(23, 59))
+        target = datetime.datetime.combine(schedule_date, DEFAULT_DATE_ONLY_TIME)
 
     diff = target - now
     total_seconds = diff.total_seconds()
@@ -232,10 +232,8 @@ def format_remaining_time(
         return '现在'
     if total_seconds < 0:
         if schedule_date == now.date():
-            if schedule_time:
-                minutes = max(1, int((-total_seconds + 59) // 60))
-                return f'已开始{minutes}分钟'
-            return '今天'
+            minutes = max(1, int((-total_seconds + 59) // 60))
+            return f'已开始{minutes}分钟'
         return '已过期'
     elif total_seconds < 60:
         return '不到1分钟'
@@ -266,6 +264,8 @@ def format_schedule_time(s: 'Schedule') -> str:
         parts.append(f'{s.date.isoformat()} ({wd})')
     if s.start_time:
         parts.append(s.start_time.strftime('%H:%M'))
+    elif s.date:
+        parts.append('12:00（默认）')
     if s.end_time:
         parts.append(f'~{s.end_time.strftime("%H:%M")}')
     return ' '.join(parts)

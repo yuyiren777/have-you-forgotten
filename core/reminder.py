@@ -5,7 +5,11 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from db.database import get_db
 from db.models import Schedule, ReminderLog
 from core.api_client import get_push_config
-from utils.date_parser import format_remaining_time, format_schedule_time
+from utils.date_parser import (
+    DEFAULT_DATE_ONLY_TIME,
+    format_remaining_time,
+    format_schedule_time,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -144,7 +148,7 @@ def _schedule_reminder_window(
 ) -> tuple[datetime.datetime, datetime.datetime]:
     """Return the event target and the last useful instant for a local reminder."""
     if start_time is None:
-        target = datetime.datetime.combine(schedule_date, datetime.time.min)
+        target = datetime.datetime.combine(schedule_date, DEFAULT_DATE_ONLY_TIME)
         deadline = datetime.datetime.combine(schedule_date, ALL_DAY_REMINDER_DEADLINE)
         return target, deadline
 

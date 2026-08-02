@@ -30,6 +30,22 @@ def test_toast_has_only_a_dismiss_action():
     app.processEvents()
 
 
+def test_long_notification_uses_high_contrast_scrollable_content():
+    app = QApplication.instance() or QApplication([])
+    message = "需要携带材料并到指定地点办理。" * 80
+    toast = ToastNotification.show_notification("较长的提醒标题" * 8, message)
+    app.processEvents()
+
+    assert toast.title_label.wordWrap()
+    assert toast.message_label.wordWrap()
+    assert toast.message_label.text() == message
+    assert toast.content_scroll.verticalScrollBar().maximum() > 0
+    assert "#ToastMessage { color: #26343F" in toast.styleSheet()
+
+    toast.close()
+    app.processEvents()
+
+
 def test_dismiss_action_closes_the_dialog_after_a_mouse_click():
     app = QApplication.instance() or QApplication([])
     toast = ToastNotification.show_notification("Title", "Message")

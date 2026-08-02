@@ -1,6 +1,11 @@
 import datetime
+from types import SimpleNamespace
 
-from utils.date_parser import format_remaining_time, parse_relative_date
+from utils.date_parser import (
+    format_remaining_time,
+    format_schedule_time,
+    parse_relative_date,
+)
 
 
 def test_remaining_time_handles_missing_date():
@@ -27,4 +32,19 @@ def test_remaining_time_has_clear_boundaries():
     assert format_remaining_time(datetime.date(2026, 7, 28), datetime.time(9, 0), now) == "现在"
     assert format_remaining_time(datetime.date(2026, 7, 28), datetime.time(9, 0, 30), now) == "不到1分钟"
     assert format_remaining_time(datetime.date(2026, 7, 28), datetime.time(8, 58), now) == "已开始2分钟"
-    assert format_remaining_time(datetime.date(2026, 7, 28), None, now) == "今天"
+    assert format_remaining_time(datetime.date(2026, 7, 28), None, now) == "还有3小时"
+    assert format_remaining_time(
+        datetime.date(2026, 7, 28),
+        None,
+        datetime.datetime(2026, 7, 28, 13, 0),
+    ) == "已开始60分钟"
+
+
+def test_date_only_schedule_displays_the_noon_default():
+    schedule = SimpleNamespace(
+        date=datetime.date(2026, 8, 2),
+        start_time=None,
+        end_time=None,
+    )
+
+    assert format_schedule_time(schedule).endswith("12:00（默认）")
