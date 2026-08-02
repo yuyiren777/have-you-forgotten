@@ -10,6 +10,7 @@ from utils.date_parser import (
     format_remaining_time,
     format_schedule_time,
 )
+from utils.schedule_content import clean_optional_text, readable_notes
 
 logger = logging.getLogger(__name__)
 
@@ -164,6 +165,24 @@ def _schedule_reminder_window(
     return target, deadline
 
 
+def _build_reminder_text(schedule, stage_label: str):
+    """Build plain Chinese reminder text without exposing stored JSON."""
+    title = f'{stage_label}：{schedule.title}'
+    formatted = format_schedule_time(schedule)
+    remaining = format_remaining_time(schedule.date, schedule.start_time)
+    location = clean_optional_text(schedule.location)
+    notes = readable_notes(schedule.notes)
+    content = '\n'.join([
+        f'提醒阶段：{stage_label}',
+        f'日程：{schedule.title}',
+        f'时间：{formatted}',
+        f'地点：{location or "未填写"}',
+        f'剩余时间：{remaining}',
+        f'备注：{notes or "未填写"}',
+    ])
+    return title, content, formatted, remaining, location, notes
+
+
 def _check_and_remind():
     """检查日程并发送提醒（由 APScheduler 每分钟调用一次）"""
     now = datetime.datetime.now()
@@ -222,22 +241,9 @@ def _check_and_remind():
             )
 
         # 2. 发送提醒
-        title = f'⏰ {stage_label}: {s.title}'
-        formatted = format_schedule_time(s)
-        remaining = format_remaining_time(s.date, s.start_time)
-
-        content_lines = [
-            f'🔔 {stage_label}',
-            f'📌 {s.title}',
-            f'📅 {formatted}',
-        ]
-        if s.location:
-            content_lines.append(f'📍 {s.location}')
-        content_lines.append(f'⏳ {remaining}')
-        if s.notes:
-            content_lines.append(f'📝 {s.notes}')
-
-        content = '\n'.join(content_lines)
+        title, content, formatted, remaining, location, notes = _build_reminder_text(
+            s, stage_label
+        )
 
         # Windows 通知
         if on_windows_notify:
@@ -264,11 +270,11 @@ def _check_and_remind():
         email_html = build_schedule_email(
             title=s.title,
             date_str=formatted,
-            location=s.location or '',
-            notes=s.notes or '',
+            location=location,
+            notes=notes or '未填写',
             remaining=remaining,
         )
-        email_ok = _send_email(f'⏰ {stage_label} — {s.title}', email_html, push_config)
+        email_ok = _send_email(f'{stage_label}：{s.title}', email_html, push_config)
         ReminderLog.create(
             schedule=s,
             method=f'email:{stage_key}',

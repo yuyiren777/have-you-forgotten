@@ -1,9 +1,9 @@
 """日程解析引擎 — 将模型输出的 JSON 转为数据库记录"""
 import datetime
-import json
 import re
 from typing import Optional
 from utils.date_parser import parse_relative_date, resolve_unspecified_year_date
+from utils.schedule_content import clean_optional_text, readable_notes
 
 
 def _normalize_unspecified_year(
@@ -47,14 +47,15 @@ def parse_schedule_item(item: dict, today: datetime.date = None) -> Optional[dic
     if not item.get('title'):
         return None
 
+    description = clean_optional_text(item.get('description'))
     result = {
         'title': str(item.get('title', '')).strip(),
-        'description': str(item.get('description', '')).strip() or None,
+        'description': description or None,
         'date': None,
         'start_time': None,
         'end_time': None,
-        'location': str(item.get('location', '')).strip() or None,
-        'notes': json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else None,
+        'location': clean_optional_text(item.get('location')) or None,
+        'notes': readable_notes(item.get('notes')) or description or None,
         'repeat_rule': None,
         'urgency': 0,
     }

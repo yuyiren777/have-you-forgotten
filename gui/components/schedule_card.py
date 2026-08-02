@@ -8,6 +8,7 @@ from PyQt5.QtWidgets import QAction
 
 from gui.components.modern_checkbox import ModernCheckBox
 from utils.date_parser import format_remaining_time, format_schedule_time
+from utils.schedule_content import clean_optional_text, readable_notes
 
 
 class ScheduleCard(QFrame):
@@ -104,27 +105,18 @@ class ScheduleCard(QFrame):
 
         # 第三行：地点 + 操作按钮
         row3 = QHBoxLayout()
-        if s.location:
-            loc_label = QLabel(f'地点  {s.location}')
+        location = clean_optional_text(s.location)
+        if location:
+            loc_label = QLabel(f'地点  {location}')
             loc_label.setStyleSheet('color: #71808C; font-size: 11pt;')
             row3.addWidget(loc_label)
 
-        if s.notes:
-            try:
-                import json
-                notes_data = json.loads(s.notes)
-                if isinstance(notes_data, dict) and notes_data.get('description'):
-                    desc = notes_data['description'][:50]
-                    desc_label = QLabel(desc)
-                    desc_label.setStyleSheet('color: #71808C; font-size: 11pt;')
-                    desc_label.setToolTip(notes_data['description'])
-                    row3.addWidget(desc_label)
-            except Exception:
-                desc = str(s.notes)
-                desc_label = QLabel(desc[:50])
-                desc_label.setStyleSheet('color: #71808C; font-size: 11pt;')
-                desc_label.setToolTip(desc)
-                row3.addWidget(desc_label)
+        notes = readable_notes(s.notes)
+        if notes:
+            desc_label = QLabel(f'备注  {notes[:50]}')
+            desc_label.setStyleSheet('color: #71808C; font-size: 11pt;')
+            desc_label.setToolTip(notes)
+            row3.addWidget(desc_label)
 
         row3.addStretch()
 

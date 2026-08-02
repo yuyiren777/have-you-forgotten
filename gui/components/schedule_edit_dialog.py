@@ -1,7 +1,6 @@
 """Schedule correction dialog shared by overview and management pages."""
 
 import datetime
-import json
 
 from PyQt5.QtCore import QDate, Qt, QTime
 from PyQt5.QtWidgets import (
@@ -22,6 +21,7 @@ from PyQt5.QtWidgets import (
 from db.database import db
 from db.models import ReminderLog, Schedule
 from gui.components.modern_checkbox import ModernCheckBox
+from utils.schedule_content import readable_notes
 
 
 class ScheduleEditDialog(QDialog):
@@ -147,16 +147,7 @@ class ScheduleEditDialog(QDialog):
     @staticmethod
     def _editable_notes(schedule) -> str:
         """Return readable notes from both legacy JSON and plain text values."""
-        raw_notes = schedule.notes or ""
-        if not raw_notes:
-            return ""
-        try:
-            parsed = json.loads(raw_notes)
-        except (TypeError, json.JSONDecodeError):
-            return str(raw_notes)
-        if isinstance(parsed, dict):
-            return str(parsed.get("notes") or parsed.get("description") or "")
-        return str(raw_notes)
+        return readable_notes(schedule.notes)
 
     def _sync_field_states(self):
         has_date = self.date_check.isChecked()

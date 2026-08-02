@@ -1,5 +1,6 @@
 """邮件推送（smtplib 标准库实现）"""
 import smtplib
+from html import escape
 from email.header import Header
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -108,22 +109,27 @@ def send(
 def build_schedule_email(title: str, date_str: str, location: str = '',
                          notes: str = '', remaining: str = '') -> str:
     """构建日程提醒 HTML 邮件"""
+    title = escape(str(title))
+    date_str = escape(str(date_str))
+    location = escape(str(location))
+    notes = escape(str(notes))
+    remaining = escape(str(remaining))
     return f"""<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family: 'Microsoft YaHei', sans-serif; max-width: 500px; margin: 0 auto;">
     <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                 padding: 24px; border-radius: 12px 12px 0 0; text-align: center;">
-        <h2 style="color: #fff; margin: 0;">⏰ 日程提醒</h2>
+        <h2 style="color: #fff; margin: 0;">日程提醒</h2>
     </div>
     <div style="background: #fff; padding: 24px; border: 1px solid #e0e0e0;
                 border-top: none; border-radius: 0 0 12px 12px;">
-        <h3 style="color: #333; margin-top: 0;">📌 {title}</h3>
+        <h3 style="color: #333; margin-top: 0;">日程：{title}</h3>
         <p style="color: #666; line-height: 1.8;">
-            <strong>📅 时间：</strong>{date_str}<br>
-            {f'<strong>📍 地点：</strong>{location}<br>' if location else ''}
-            {f'<strong>⏳ 状态：</strong>{remaining}<br>' if remaining else ''}
-            {f'<strong>📝 备注：</strong>{notes}<br>' if notes else ''}
+            <strong>时间：</strong>{date_str}<br>
+            {f'<strong>地点：</strong>{location}<br>' if location else ''}
+            {f'<strong>剩余时间：</strong>{remaining}<br>' if remaining else ''}
+            {f'<strong>备注：</strong>{notes}<br>' if notes else ''}
         </p>
         <hr style="border: none; border-top: 1px solid #eee; margin: 16px 0;">
         <p style="color: #999; font-size: 12px; text-align: center;">
