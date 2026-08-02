@@ -40,12 +40,23 @@ class StartupWorker(QThread):
 
 def main():
     if '--verify-runtime' in sys.argv:
+        import tempfile
+        from pathlib import Path
+
+        from openpyxl import load_workbook
+
+        from core.exporter import export_schedules
         from core.frameworks import verify_ai_frameworks
         from core.workflow import schedule_workflow
 
         verify_ai_frameworks()
         if schedule_workflow is None:
             raise RuntimeError('LangGraph workflow compilation failed.')
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            export_path = Path(temporary_directory) / 'runtime-check.xlsx'
+            export_schedules([], str(export_path), 'xlsx')
+            workbook = load_workbook(export_path, read_only=True)
+            workbook.close()
         return
 
     # 初始化数据库

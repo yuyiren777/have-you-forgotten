@@ -17,7 +17,7 @@ if (-not (Test-Path $BuildPython)) {
 $PythonBase = & $BuildPython -c "import sys; print(sys.base_prefix)"
 $RuntimeBin = Join-Path $PythonBase 'Library\bin'
 $RequiredRuntimeLibraries = @(
-    'libssl-3-x64.dll', 'libcrypto-3-x64.dll', 'libbz2.dll', 'sqlite3.dll', 'ffi.dll',
+    'libssl-3-x64.dll', 'libcrypto-3-x64.dll', 'libexpat.dll', 'libbz2.dll', 'sqlite3.dll', 'ffi.dll',
     'vcruntime140.dll', 'vcruntime140_1.dll', 'vcruntime140_threads.dll',
     'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll',
     'msvcp140_atomic_wait.dll', 'msvcp140_codecvt_ids.dll',
@@ -41,8 +41,27 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Icon conversion failed.' }
 
     if (-not $SkipAppBuild) {
-        & $BuildPython -m PyInstaller --noconfirm --clean --windowed --onedir --name AI-Memo --icon resources\app.ico --exclude-module PyQt6 --exclude-module PySide2 --exclude-module PySide6 --collect-data tzdata --add-data "gui/styles.qss;gui" --add-data "gui/dark_styles.qss;gui" @RuntimeBinaries main.py
-        if ($LASTEXITCODE -ne 0) { throw 'Application packaging failed.' }
+        # pyexpat depends on the Python distribution's libexpat.dll. Other tools
+        # such as Graphviz can place an incompatible DLL with the same name on PATH.
+        $OriginalPath = $env:PATH
+        try {
+            $env:PATH = "$RuntimeBin;$OriginalPath"
+            & $BuildPython -m PyInstaller --noconfirm --clean --windowed --onedir --name AI-Memo --icon resources\app.ico --exclude-module PyQt6 --exclude-module PySide2 --exclude-module PySide6 --collect-data tzdata --add-data "gui/styles.qss;gui" --add-data "gui/dark_styles.qss;gui" @RuntimeBinaries main.py
+            if ($LASTEXITCODE -ne 0) { throw 'Application packaging failed.' }
+        }
+        finally {
+            $env:PATH = $OriginalPath
+        }
+
+        $PythonExpat = Join-Path $RuntimeBin 'libexpat.dll'
+        $BundledExpat = Join-Path $ProjectRoot 'dist\AI-Memo\_internal\libexpat.dll'
+        if (-not (Test-Path $PythonExpat)) {
+            throw "Python runtime library is missing: $PythonExpat"
+        }
+        Copy-Item -LiteralPath $PythonExpat -Destination $BundledExpat -Force
+        if ((Get-FileHash $PythonExpat).Hash -ne (Get-FileHash $BundledExpat).Hash) {
+            throw 'Bundled libexpat.dll does not match the Python runtime.'
+        }
     }
 
     $IsccPath = (Get-Command iscc.exe -ErrorAction SilentlyContinue).Source
