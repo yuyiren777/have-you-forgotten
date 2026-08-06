@@ -135,6 +135,38 @@ def test_reminder_history_cards_expose_delete_button_for_every_status():
     app.processEvents()
 
 
+def test_reminder_history_refreshes_statuses_before_rendering_tabs():
+    app = QApplication.instance() or QApplication([])
+    page = ReminderHistoryPage()
+    empty_query = _FakeQuery([])
+
+    with patch("gui.reminder_history.refresh_expired_schedule_statuses") as sync, patch(
+        "gui.reminder_history.Schedule.select", return_value=empty_query
+    ):
+        page.refresh()
+
+    sync.assert_called_once_with()
+    page.deleteLater()
+    app.processEvents()
+
+
+def test_reminder_history_timer_only_refreshes_while_visible():
+    app = QApplication.instance() or QApplication([])
+    page = ReminderHistoryPage()
+
+    with patch.object(page, "isVisible", return_value=False), patch.object(page, "refresh") as refresh:
+        page._refresh_if_visible()
+        refresh.assert_not_called()
+
+    with patch.object(page, "isVisible", return_value=True), patch.object(page, "refresh") as refresh:
+        page._refresh_if_visible()
+        refresh.assert_called_once_with()
+
+    assert page._refresh_timer.interval() == 30_000
+    page.deleteLater()
+    app.processEvents()
+
+
 def test_theme_scrollbars_have_visible_tracks_and_handles():
     project_root = os.path.dirname(os.path.dirname(__file__))
     for filename in ("styles.qss", "dark_styles.qss"):

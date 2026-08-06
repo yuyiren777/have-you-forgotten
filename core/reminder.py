@@ -165,6 +165,43 @@ def _schedule_reminder_window(
     return target, deadline
 
 
+def _is_schedule_expired(schedule, now: datetime.datetime | None = None) -> bool:
+    """Return whether a dated, unfinished occurrence has passed its useful window."""
+    if not schedule.date:
+        return False
+    now = now or datetime.datetime.now()
+    _target, deadline = _schedule_reminder_window(
+        schedule.date,
+        schedule.start_time,
+        schedule.end_time,
+    )
+    return now >= deadline
+
+
+def refresh_expired_schedule_statuses(now: datetime.datetime | None = None) -> int:
+    """Persist real-time expiration for dated, unfinished schedules.
+
+    Reminder history must not depend on whether a notification happened to be
+    delivered. A pending or reminded schedule becomes expired when its event
+    window ends; completed and undated schedules are deliberately untouched.
+    """
+    now = now or datetime.datetime.now()
+    get_db()
+    candidates = Schedule.select().where(
+        (Schedule.status.in_(("pending", "reminded")))
+        & Schedule.date.is_null(False)
+    )
+    expired_ids = [
+        schedule.id for schedule in candidates
+        if _is_schedule_expired(schedule, now)
+    ]
+    if not expired_ids:
+        return 0
+    return Schedule.update(status="expired", updated_at=now).where(
+        Schedule.id.in_(expired_ids)
+    ).execute()
+
+
 def _build_reminder_text(schedule, stage_label: str):
     """Build plain Chinese reminder text without exposing stored JSON."""
     title = f'{stage_label}：{schedule.title}'
@@ -188,6 +225,10 @@ def _check_and_remind():
     now = datetime.datetime.now()
     today = now.date()
     stages = _get_reminder_stages()
+
+    # Keep lifecycle states current even when the final reminder was sent long
+    # ago. This also covers schedules that did not have a usable notification.
+    refresh_expired_schedule_statuses(now)
 
     # 1. 查找需要提醒的日程
     pending_schedules = list(Schedule.select().where(
@@ -302,14 +343,6 @@ def _check_and_remind():
                 on_alert_tray()
             except Exception:
                 pass
-
-    # 3. 清理过期日程（超过 3 天未处理的标记为 expired）
-    three_days_ago = today - datetime.timedelta(days=3)
-    Schedule.update(status='expired').where(
-        (Schedule.status == 'pending') &
-        (Schedule.date < three_days_ago)
-    ).execute()
-
 
 def _remind_undated_on_start():
     """Show each undated pending item once when this app session starts."""

@@ -2,13 +2,14 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QScrollArea, QLabel, QTabWidget, QMessageBox
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QFont
 
 from gui.components.schedule_card import ScheduleCard
 from gui.components.schedule_edit_dialog import open_schedule_editor
 from db.database import db
 from db.models import Schedule, ReminderLog
+from core.reminder import refresh_expired_schedule_statuses
 
 
 class ReminderHistoryPage(QWidget):
@@ -18,6 +19,10 @@ class ReminderHistoryPage(QWidget):
         super().__init__(parent)
         self.setObjectName('ReminderHistoryPage')
         self._setup_ui()
+        self._refresh_timer = QTimer(self)
+        self._refresh_timer.setTimerType(Qt.TimerType.CoarseTimer)
+        self._refresh_timer.setInterval(30_000)
+        self._refresh_timer.timeout.connect(self._refresh_if_visible)
 
     def _setup_ui(self):
         layout = QVBoxLayout(self)
@@ -68,9 +73,23 @@ class ReminderHistoryPage(QWidget):
 
     def refresh(self):
         """刷新所有标签页"""
+        refresh_expired_schedule_statuses()
         self._refresh_tab('reminded', self.reminded_layout)
         self._refresh_tab('expired', self.expired_layout)
         self._refresh_tab('completed', self.completed_layout)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.refresh()
+        self._refresh_timer.start()
+
+    def hideEvent(self, event):
+        self._refresh_timer.stop()
+        super().hideEvent(event)
+
+    def _refresh_if_visible(self):
+        if self.isVisible():
+            self.refresh()
 
     def _refresh_tab(self, status: str, container_layout):
         # 清除旧内容
